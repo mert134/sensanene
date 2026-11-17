@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bot Paneli · Discord Yönetim</title>
   <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/panel-polish.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>" />
 </head>
 <body>
@@ -118,7 +119,21 @@
           </select>
           <button class="btn" onclick="loadMembers()">↻ Yenile</button>
         </div>
-        <div class="hint" style="margin-bottom:12px">Bir üyeye tıkla → ban / kick / mute / uyarı işlemlerini seç. Yetkin yetmediği işlemler otomatik reddedilir.</div>
+        <div class="operation-bar">
+          <div class="operation-head"><div><b>Toplu üye işlemleri</b><span>Birden fazla üyeyi seçip tek adımda yönet.</span></div><span class="selection-count" id="memberBulkCount">0 seçili</span></div>
+          <div class="operation-actions">
+            <button class="btn btn-sm" onclick="selectMembersBy('visible')">Görünenleri seç</button>
+            <button class="btn btn-sm" onclick="selectMembersBy('all')">Tümünü seç</button>
+            <button class="btn btn-sm" onclick="selectMembersBy('none')">Seçimi temizle</button>
+            <span class="operation-separator"></span>
+            <button class="btn btn-sm btn-danger" onclick="openMemberBulk('ban')">Yasakla</button>
+            <button class="btn btn-sm" onclick="openMemberBulk('kick')">Sunucudan at</button>
+            <button class="btn btn-sm" onclick="openMemberBulk('mute')">Sustur</button>
+            <button class="btn btn-sm" onclick="openMemberBulk('unmute')">Susturmayı kaldır</button>
+            <button class="btn btn-sm" onclick="openMemberBulk('warn')">Uyar</button>
+            <button class="btn btn-sm" onclick="openMemberBulk('roles')">Rol yönet</button>
+          </div>
+        </div>
         <div class="member-grid" id="memberGrid"></div>
       </section>
 
@@ -126,8 +141,9 @@
       <section class="section" id="sec-channels">
         <div class="toolbar">
           <input class="input search" id="channelSearch" placeholder="🔍 Kanal veya kategori ara…" oninput="renderChannels()" />
-          <button class="btn btn-primary" onclick="openChannelCreate()">+ Kanal Oluştur</button>
-          <button class="btn" onclick="loadChannels()">↻ Yenile</button>
+          <button class="btn btn-primary" onclick="openChannelCreate()">Kanal oluştur</button>
+          <button class="btn" onclick="openBulkChannelCreate()">Toplu oluştur</button>
+          <button class="btn" onclick="loadChannels()">Yenile</button>
         </div>
 
         <div class="card bulk-bar" style="margin-bottom:14px;padding:12px 14px">
@@ -142,8 +158,9 @@
           </div>
           <div class="bulk-act-row" id="bulkActions" style="display:none">
             <span class="badge" id="bulkCount">0 seçili</span>
-            <button class="btn btn-sm btn-primary" onclick="openBulkRename()">✏️ Seçilenlerin Adını Değiştir</button>
-            <button class="btn btn-sm btn-danger" onclick="openBulkDelete()">🗑 Seçilenleri Sil</button>
+            <button class="btn btn-sm btn-primary" onclick="openBulkRename()">Adları düzenle</button>
+            <button class="btn btn-sm" onclick="bulkSetTopics()">Konuyu güncelle</button>
+            <button class="btn btn-sm btn-danger" onclick="openBulkDelete()">Seçilenleri sil</button>
           </div>
         </div>
 
@@ -156,7 +173,8 @@
           <h3>🚫 Yasaklı Üyeler <span class="badge" id="banCount">0</span></h3>
           <div class="row" style="margin-bottom:10px">
             <input class="input" id="unbanInput" placeholder="Yasağı kaldırılacak kullanıcı ID" />
-            <button class="btn btn-ok" style="flex:0 0 auto" onclick="quickUnban()">Yasağı Kaldır</button>
+            <button class="btn btn-ok" style="flex:0 0 auto" onclick="quickUnban()">Yasağı kaldır</button>
+            <button class="btn" style="flex:0 0 auto" onclick="openBulkUnban()">Toplu kaldır</button>
           </div>
           <div id="banList"><div class="empty">Yükleniyor…</div></div>
         </div>
@@ -167,8 +185,20 @@
         <div class="toolbar">
           <input class="input" id="newRoleName" placeholder="Yeni rol adı" style="max-width:220px" />
           <input type="color" class="input" id="newRoleColor" value="#5865f2" style="max-width:60px;padding:4px;height:40px" />
-          <button class="btn btn-primary" onclick="createRole()">+ Rol Oluştur</button>
-          <button class="btn" onclick="loadRoles()">↻ Yenile</button>
+          <button class="btn btn-primary" onclick="createRole()">Rol oluştur</button>
+          <button class="btn" onclick="openBulkRoleCreate()">Toplu oluştur</button>
+          <button class="btn" onclick="loadRoles()">Yenile</button>
+        </div>
+        <div class="operation-bar">
+          <div class="operation-head"><div><b>Toplu rol işlemleri</b><span>Seçilen rolleri birlikte düzenle veya kaldır.</span></div><span class="selection-count" id="roleBulkCount">0 seçili</span></div>
+          <div class="operation-actions">
+            <button class="btn btn-sm" onclick="selectRoles('all')">Tümünü seç</button>
+            <button class="btn btn-sm" onclick="selectRoles('none')">Temizle</button>
+            <span class="operation-separator"></span>
+            <button class="btn btn-sm" onclick="bulkRenameRoles('prefix')">Ön ek ekle</button>
+            <button class="btn btn-sm" onclick="bulkRenameRoles('suffix')">Son ek ekle</button>
+            <button class="btn btn-sm btn-danger" onclick="bulkDeleteRoles()">Seçilenleri sil</button>
+          </div>
         </div>
         <div class="card">
           <div id="roleList"><div class="empty">Yükleniyor…</div></div>

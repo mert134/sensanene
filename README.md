@@ -9,14 +9,16 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - 👥 Üye listesi + arama (isim / ID), susturulmuşlar ve uyarısı olanlar filtresi
 - Bir üyeye tıkla → **Ban** (mesaj geçmişi silme seçenekli), **Kick**, **Mute** (60 sn → 7 gün), **Unmute**, **Uyarı**
 - Yetki kontrolü: *kendi Discord yetkin* ve *rol sıralaması* dikkate alınır — yetkin yetmeyeni bot reddeder
-- Yasaklılar listesi + tek tıkla yasak kaldırma
+- Yasaklılar listesi + tek tıkla veya kullanıcı ID listesiyle toplu yasak kaldırma
+- **Toplu üye yönetimi:** seçilen 50 üyeyi birlikte banlama, atma, susturma, susturmayı kaldırma, uyarma ve rol verme/alma
 - 3 uyarıya ulaşan üye otomatik 30 dk susturulur
 
 **Kanal & kategori yönetimi (tekli ve toplu)**
 - Kategoriye göre gruplanmış metin / ses / duyuru kanalları + arama
 - Tekli kanal veya kategori **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
+- **Toplu oluşturma:** satır başına bir ad girerek tek seferde 50 metin/ses/duyuru kanalı veya kategori oluştur
 - **Toplu seçim:** hızlı seçim (tümü, tüm ses kanalları, tüm metin kanalları, tüm kategoriler, kategori grubu)
-- **Toplu isim değiştirme:** başına/sonuna ekle (`yakında-`), bul & değiştir, hepsini aynı ad yap (`yakında-{n}`), canlı önizleme
+- **Toplu düzenleme:** başına/sonuna ekle (`yakında-`), bul & değiştir, hepsini aynı ad yap (`yakında-{n}`), canlı önizleme ve seçili metin kanallarının konusunu birlikte güncelleme
 - **Toplu silme:** seçilen onlarca kanalı/kategoriyi tek seferde kaldır
 
 **Erişim güvenliği (kullanıcı adı & şifre kilidi)**
@@ -25,6 +27,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 
 **Rol yönetimi**
 - Rol oluştur / sil, üyeye rol ver / al (rol sıralaması korumalı)
+- 50 rolü birlikte oluşturma, ön/son ekle toplu yeniden adlandırma, seçerek toplu silme ve tekil ad/renk düzenleme
 
 **Eğlence & ekonomi (hem panelde hem Discord'da)**
 - 🎰 OwO tarzı slot: yalnızca üç aynı sembol kazandırır; özel dönen makara animasyonu ve dengeli çarpanlar

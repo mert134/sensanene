@@ -7,9 +7,11 @@ const state = {
   guild: null,
   guilds: [],
   members: [],
+  selectedMembers: new Set(),
   channels: [],
   selectedChannels: new Set(),
   roles: [],
+  selectedRoles: new Set(),
   selectedMember: null,
   settings: null
 };
@@ -405,6 +407,8 @@ async function loadMembers() {
   try {
     const d = await api('/api/members');
     state.members = d.members;
+    const valid = new Set(d.members.map((m) => m.id));
+    state.selectedMembers = new Set([...state.selectedMembers].filter((id) => valid.has(id)));
     renderMembers();
   } catch (err) {
     grid.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
@@ -434,8 +438,10 @@ function renderMembers() {
     if (m.muted) tags.append(el('span', { class: 'tag muted', text: 'SUSTURULMUŞ' }));
     if (m.warnings > 0) tags.append(el('span', { class: 'tag warnc', text: `${m.warnings} UYARI` }));
 
+    const checkbox = el('input', { type: 'checkbox', class: 'member-select', checked: state.selectedMembers.has(m.id) ? 'checked' : null, onclick: (e) => { e.stopPropagation(); toggleMemberSelect(m.id, e.target.checked); } });
     grid.append(
-      el('button', { class: 'member-card', onclick: () => openMember(m.id) }, [
+      el('button', { class: `member-card${state.selectedMembers.has(m.id) ? ' selected' : ''}`, onclick: () => openMember(m.id) }, [
+        checkbox,
         el('img', { src: m.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png', alt: '' }),
         el('div', { class: 'info' }, [
           el('div', { class: 'n', text: m.displayName }),
@@ -445,6 +451,48 @@ function renderMembers() {
       ])
     );
   }
+  updateMemberBulkCount();
+}
+
+function getVisibleMembers() {
+  const q = ($('#memberSearch')?.value || '').toLowerCase().trim();
+  const filter = $('#memberFilter')?.value || 'all';
+  return state.members.filter((m) => (!q || m.username.toLowerCase().includes(q) || m.displayName.toLowerCase().includes(q) || m.id.includes(q)))
+    .filter((m) => filter === 'all' || (filter === 'muted' && m.muted) || (filter === 'warned' && m.warnings > 0) || (filter === 'bots' && m.bot));
+}
+function updateMemberBulkCount() { if ($('#memberBulkCount')) $('#memberBulkCount').textContent = `${state.selectedMembers.size} seçili`; }
+function toggleMemberSelect(id, checked) { checked ? state.selectedMembers.add(id) : state.selectedMembers.delete(id); renderMembers(); }
+function selectMembersBy(mode) {
+  if (mode === 'none') state.selectedMembers.clear();
+  else (mode === 'visible' ? getVisibleMembers() : state.members).forEach((m) => state.selectedMembers.add(m.id));
+  renderMembers();
+}
+
+async function openMemberBulk(kind) {
+  const ids = [...state.selectedMembers];
+  if (!ids.length) return toast('Önce en az bir üye seç', 'warn');
+  const roleMode = kind === 'roles';
+  if (roleMode && !state.roles.length) state.roles = (await api('/api/roles')).roles;
+  const reason = el('input', { class: 'input', id: 'bulkMemberReason', placeholder: 'İşlem sebebi' });
+  const action = roleMode ? el('select', { class: 'input', id: 'bulkMemberAction' }, [el('option', { value: 'addRole', text: 'Rol ver' }), el('option', { value: 'removeRole', text: 'Rol al' })]) : null;
+  const role = roleMode ? el('select', { class: 'input', id: 'bulkMemberRole' }, state.roles.filter((r) => !r.managed).map((r) => el('option', { value: r.id, text: r.name }))) : null;
+  const duration = kind === 'mute' ? el('select', { class: 'input', id: 'bulkMemberDuration' }, [
+    el('option', { value: '600000', text: '10 dakika' }), el('option', { value: '3600000', text: '1 saat' }), el('option', { value: '86400000', text: '1 gün' }), el('option', { value: '604800000', text: '7 gün' })
+  ]) : null;
+  const labels = { ban: 'Toplu yasaklama', kick: 'Toplu sunucudan atma', mute: 'Toplu susturma', unmute: 'Toplu susturma kaldırma', warn: 'Toplu uyarı', roles: 'Toplu rol yönetimi' };
+  const body = [
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: labels[kind] }), el('div', { class: 'sub', text: `${ids.length} üye seçildi` })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('div', { class: 'bulk-summary' }, [el('div', {}, [el('b', { text: String(ids.length) }), el('span', { text: 'Seçili üye' })]), el('div', {}, [el('b', { text: kind === 'ban' ? 'Kalıcı' : 'Toplu' }), el('span', { text: 'İşlem tipi' })]), el('div', {}, [el('b', { text: '50' }), el('span', { text: 'İşlem sınırı' })])])
+  ];
+  if (action) body.push(el('label', { class: 'f', text: 'İşlem' }), action, el('div', { style: 'height:10px' }), el('label', { class: 'f', text: 'Rol' }), role);
+  if (duration) body.push(el('label', { class: 'f', text: 'Süre' }), duration);
+  if (!roleMode) body.push(el('label', { class: 'f', text: 'Sebep' }), reason);
+  body.push(el('button', { class: `btn btn-block ${kind === 'ban' ? 'btn-danger' : 'btn-primary'}`, style: 'margin-top:16px', text: 'İşlemi uygula', onclick: async () => {
+    const selectedAction = roleMode ? $('#bulkMemberAction').value : kind;
+    const payload = { action: selectedAction, userIds: ids, reason: reason.value, roleId: roleMode ? $('#bulkMemberRole').value : null, durationMs: duration ? Number(duration.value) : null };
+    try { const r = await api('/api/mod/bulk', { method: 'POST', body: payload }); toast(`${r.succeeded} başarılı, ${r.failed} başarısız`, r.failed ? 'warn' : 'ok'); closeModal(); state.selectedMembers.clear(); loadMembers(); } catch (e) { toast(e.message, 'err'); }
+  } }));
+  openModal(body);
 }
 
 async function openMember(id) {
@@ -909,6 +957,14 @@ function openBulkRename() {
   ]);
 }
 
+async function bulkSetTopics() {
+  const eligible = state.channels.filter((c) => state.selectedChannels.has(c.id) && ['text', 'announcement', 'forum'].includes(c.type));
+  if (!eligible.length) return toast('Konu destekleyen metin kanalı seç', 'warn');
+  const topic = prompt(`${eligible.length} kanal için yeni konu (boş bırakırsan konular temizlenir):`, '');
+  if (topic === null) return;
+  try { const r = await api('/api/channels/bulk/topic', { method: 'POST', body: { channelIds: eligible.map((c) => c.id), topic } }); toast(`${r.updated} kanal konusu güncellendi`, r.failed ? 'warn' : 'ok'); loadChannels(); } catch (e) { toast(e.message, 'err'); }
+}
+
 function openBulkDelete() {
   const selectedList = state.channels.filter((c) => state.selectedChannels.has(c.id));
   if (!selectedList.length) return toast('Önce silinecek kanal seç', 'warn');
@@ -1070,6 +1126,24 @@ function openChannelCreate() {
   ]);
 }
 
+function openBulkChannelCreate() {
+  const categories = state.channels.filter((c) => c.type === 'category');
+  openModal([
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu kanal oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir kanal adı — en fazla 50' })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('label', { class: 'f', text: 'Kanal adları' }),
+    el('textarea', { class: 'input', id: 'bulkChannelNames', rows: '9', placeholder: 'genel-sohbet\noyun-odası\nmüzik\nyayıncılar' }),
+    el('div', { class: 'row', style: 'margin-top:12px' }, [
+      el('select', { class: 'input', id: 'bulkChannelType' }, [el('option', { value: 'text', text: 'Metin kanalı' }), el('option', { value: 'voice', text: 'Ses kanalı' }), el('option', { value: 'category', text: 'Kategori' }), el('option', { value: 'announcement', text: 'Duyuru kanalı' })]),
+      el('select', { class: 'input', id: 'bulkChannelParent' }, [el('option', { value: '', text: 'Kategori yok' }), ...categories.map((c) => el('option', { value: c.id, text: c.name }))])
+    ]),
+    el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:16px', text: 'Kanalları oluştur', onclick: async () => {
+      const names = $('#bulkChannelNames').value.split(/\n|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50);
+      if (!names.length) return toast('En az bir kanal adı gir', 'warn');
+      try { const r = await api('/api/channels/bulk/create', { method: 'POST', body: { names, type: $('#bulkChannelType').value, categoryId: $('#bulkChannelParent').value || null } }); toast(`${r.created} kanal oluşturuldu${r.failed ? `, ${r.failed} başarısız` : ''}`, r.failed ? 'warn' : 'ok'); closeModal(); loadChannels(); } catch (e) { toast(e.message, 'err'); }
+    } })
+  ]);
+}
+
 async function loadBans() {
   try {
     const d = await api('/api/bans');
@@ -1112,11 +1186,26 @@ async function quickUnban() {
   }
 }
 
+function openBulkUnban() {
+  openModal([
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu yasak kaldırma' }), el('div', { class: 'sub', text: 'Her satıra bir Discord kullanıcı ID’si' })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('textarea', { class: 'input', id: 'bulkUnbanIds', rows: '7', placeholder: '123456789012345678\n987654321098765432' }),
+    el('input', { class: 'input', id: 'bulkUnbanReason', style: 'margin-top:10px', placeholder: 'Sebep (opsiyonel)' }),
+    el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Yasakları kaldır', onclick: async () => {
+      const userIds = $('#bulkUnbanIds').value.split(/\s|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50);
+      if (!userIds.length) return toast('Kullanıcı ID’si gir', 'warn');
+      try { const r = await api('/api/mod/bulk', { method: 'POST', body: { action: 'unban', userIds, reason: $('#bulkUnbanReason').value } }); toast(`${r.succeeded} yasak kaldırıldı, ${r.failed} başarısız`, r.failed ? 'warn' : 'ok'); closeModal(); loadBans(); } catch (e) { toast(e.message, 'err'); }
+    } })
+  ]);
+}
+
 /* ============================ ROLLER ============================ */
 async function loadRoles() {
   try {
     const d = await api('/api/roles');
     state.roles = d.roles;
+    const valid = new Set(d.roles.filter((r) => !r.managed).map((r) => r.id));
+    state.selectedRoles = new Set([...state.selectedRoles].filter((id) => valid.has(id)));
     const box = $('#roleList');
     box.innerHTML = '';
     if (!d.roles.length) {
@@ -1125,18 +1214,46 @@ async function loadRoles() {
     }
     for (const r of d.roles) {
       box.append(
-        el('div', { class: 'channel-row' }, [
+        el('div', { class: `channel-row${state.selectedRoles.has(r.id) ? ' selected' : ''}` }, [
+          !r.managed && el('input', { type: 'checkbox', class: 'role-select', checked: state.selectedRoles.has(r.id) ? 'checked' : null, onchange: (e) => { e.target.checked ? state.selectedRoles.add(r.id) : state.selectedRoles.delete(r.id); updateRoleBulkCount(); } }),
           el('span', { class: 'role-dot', style: `background:${r.color === '#000000' ? '#99aab5' : r.color};width:12px;height:12px` }),
           el('div', { class: 'nm', html: `${esc(r.name)}<small>${r.memberCount} üye · sıra ${r.position}${r.managed ? ' · bot rolü' : ''}</small>` }),
           el('div', { class: 'acts' }, [
-            !r.managed && el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Rolü sil', onclick: () => deleteRole(r) })
+            !r.managed && el('button', { class: 'btn btn-sm', text: 'Düzenle', onclick: () => editRole(r) }),
+            !r.managed && el('button', { class: 'btn btn-sm btn-danger', text: 'Sil', title: 'Rolü sil', onclick: () => deleteRole(r) })
           ])
         ])
       );
     }
+    updateRoleBulkCount();
   } catch (err) {
     $('#roleList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
   }
+}
+
+function updateRoleBulkCount() { if ($('#roleBulkCount')) $('#roleBulkCount').textContent = `${state.selectedRoles.size} seçili`; }
+function selectRoles(mode) { state.selectedRoles.clear(); if (mode === 'all') state.roles.filter((r) => !r.managed).forEach((r) => state.selectedRoles.add(r.id)); loadRoles(); }
+async function bulkRenameRoles(mode) {
+  if (!state.selectedRoles.size) return toast('Önce rol seç', 'warn');
+  const value = prompt(mode === 'prefix' ? 'Eklenecek ön ek:' : 'Eklenecek son ek:');
+  if (!value) return;
+  try { const r = await api('/api/roles/bulk', { method: 'POST', body: { action: 'rename', roleIds: [...state.selectedRoles], mode, value } }); toast(`${r.succeeded} rol güncellendi`, r.failed ? 'warn' : 'ok'); state.selectedRoles.clear(); loadRoles(); } catch (e) { toast(e.message, 'err'); }
+}
+async function bulkDeleteRoles() {
+  if (!state.selectedRoles.size) return toast('Önce rol seç', 'warn');
+  if (!confirm(`${state.selectedRoles.size} rol kalıcı olarak silinsin mi?`)) return;
+  try { const r = await api('/api/roles/bulk', { method: 'POST', body: { action: 'delete', roleIds: [...state.selectedRoles] } }); toast(`${r.succeeded} rol silindi`, r.failed ? 'warn' : 'ok'); state.selectedRoles.clear(); loadRoles(); } catch (e) { toast(e.message, 'err'); }
+}
+function openBulkRoleCreate() {
+  openModal([
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu rol oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir rol adı' })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('textarea', { class: 'input', id: 'bulkRoleNames', rows: '8', placeholder: 'Yönetici\nModeratör\nVIP\nÜye' }),
+    el('label', { class: 'f', style: 'margin-top:12px', text: 'Rol rengi' }), el('input', { type: 'color', class: 'input', id: 'bulkRoleColor', value: '#5865f2', style: 'height:44px' }),
+    el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Rolleri oluştur', onclick: async () => { const names = $('#bulkRoleNames').value.split(/\n|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50); if (!names.length) return toast('Rol adı gir', 'warn'); const color = $('#bulkRoleColor').value; try { const r = await api('/api/roles/bulk', { method: 'POST', body: { action: 'create', items: names.map((name) => ({ name, color })) } }); toast(`${r.succeeded} rol oluşturuldu`, r.failed ? 'warn' : 'ok'); closeModal(); loadRoles(); } catch (e) { toast(e.message, 'err'); } } })
+  ]);
+}
+function editRole(role) {
+  openModal([el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Rolü düzenle' }), el('div', { class: 'sub', text: role.name })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]), el('label', { class: 'f', text: 'Rol adı' }), el('input', { class: 'input', id: 'editRoleName', value: role.name }), el('label', { class: 'f', style: 'margin-top:12px', text: 'Renk' }), el('input', { type: 'color', class: 'input', id: 'editRoleColor', value: role.color === '#000000' ? '#99aab5' : role.color, style: 'height:44px' }), el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Kaydet', onclick: async () => { try { const r = await api('/api/roles/edit', { method: 'POST', body: { roleId: role.id, name: $('#editRoleName').value, color: $('#editRoleColor').value } }); toast(r.message, 'ok'); closeModal(); loadRoles(); } catch (e) { toast(e.message, 'err'); } } })]);
 }
 
 async function createRole() {
