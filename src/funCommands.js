@@ -187,6 +187,21 @@ function seededPercent(...parts) {
   return Math.abs(h) % 101;
 }
 
+const RECENT_SCORES = new Map();
+function freshPercent(key) {
+  const recent = RECENT_SCORES.get(key) || [];
+  let score;
+  // Aynı kişi/komut için son 12 sonucu tekrar etme; her kullanımda yeni ölçüm yap.
+  for (let i = 0; i < 20; i++) {
+    score = Math.floor(Math.random() * 101);
+    if (!recent.includes(score)) break;
+  }
+  recent.push(score);
+  if (recent.length > 12) recent.shift();
+  RECENT_SCORES.set(key, recent);
+  return score;
+}
+
 function bar(n) {
   const full = Math.round(n / 10);
   return `${'▰'.repeat(full)}${'▱'.repeat(10 - full)}`;
@@ -326,8 +341,8 @@ async function runMeter(interaction, name, info) {
   const one = interaction.options.getUser('kişi1');
   const two = name === 'aşk' ? (interaction.options.getUser('kişi2') || interaction.user) : null;
   await interaction.deferReply();
-  const day = Math.floor(Date.now() / 86400000); // Eğlenceli sonuç her gün yenilenir.
-  const score = seededPercent(name, one.id, two ? two.id : '', day);
+  const pair = two ? [one.id, two.id].sort().join(':') : one.id;
+  const score = freshPercent(`meter:${name}:${pair}`);
   const comment = score >= 75 ? info.high : score >= 35 ? info.mid : info.low;
   const who = two ? `<@${one.id}> × <@${two.id}>` : `<@${one.id}>`;
   const gif = await getGif(METER_GIFS[name] || 'happy');
@@ -395,7 +410,7 @@ async function runOracle(interaction) {
     return interaction.reply({ embeds: [e.setTitle('🪙 Para havada dönüyor…').setDescription(`# ${result}\nKader kararını verdi!`)] });
   }
   if (n === 'yüzde') {
-    const topic = interaction.options.getString('konu'), score = seededPercent(topic, interaction.user.id, Math.floor(Date.now()/86400000));
+    const topic = interaction.options.getString('konu'), score = freshPercent(`yüzde:${interaction.user.id}:${topic.toLocaleLowerCase('tr-TR')}`);
     return interaction.reply({ embeds: [e.setTitle(`📊 Olma ihtimali: %${score}`).setDescription(`**${topic}**\n\n### ${bar(score)}  **%${score}**`)] });
   }
   if (n === 'iltifat') {
