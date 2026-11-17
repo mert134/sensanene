@@ -99,4 +99,4 @@ Bot açıldığında sunuculara toplam 85 `/` komutu kaydeder (Discord'un sunucu
 - **Mini oyunlar:** `/taşkağıtmakas`, `/zar-at`, `/yazı-tura`, `/rastgele-sayı`
 - **Kehanet ve araçlar:** `/fal`, `/motto`, `/kim`, `/yüzde`, `/seç`, `/gerçekmi`, `/evethayır`, `/avatar`, `/profil`, `/sunucu`
 
-GIF etkileşimleri `nekos.best` üzerinden alınır; servis geçici olarak erişilemezse komut görsel kart ve metinle çalışmaya devam eder. Ölçer sonuçları tamamen eğlence amaçlıdır ve her gün yenilenir.
+GIF etkileşimleri iki anime GIF sağlayıcısından alınır; bağlantılar Discord'a gönderilmeden önce doğrulanır ve servis geçici olarak erişilemezse yedek animasyon kullanılır. Ölçer sonuçları her kullanımda yenilenir ve yakın sonuçlar tekrarlanmaz.

@@ -297,7 +297,7 @@ async function getGif(action) {
 function baseEmbed(interaction, color = COLORS.purple) {
   return new EmbedBuilder().setColor(color)
     .setAuthor({ name: 'LORES • Eğlence Merkezi', iconURL: interaction.client.user.displayAvatarURL() })
-    .setFooter({ text: `${interaction.guild.name} • Tamamen eğlence amaçlıdır`, iconURL: interaction.guild.iconURL() || undefined })
+    .setFooter({ text: `LORES • ${interaction.guild.name}`, iconURL: interaction.guild.iconURL() || interaction.client.user.displayAvatarURL() })
     .setTimestamp();
 }
 
@@ -326,8 +326,7 @@ async function runAction(interaction, name, info) {
     .setDescription(description)
     .setThumbnail(target.displayAvatarURL({ size: 256 }))
     .setImage(gif);
-  const mentions = [...new Set([actor.id, target.id])];
-  return interaction.editReply({ content: mentions.map(id => `<@${id}>`).join(' '), embeds: [embed], allowedMentions: { users: mentions } });
+  return interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
 }
 
 const METER_GIFS = {
@@ -415,7 +414,7 @@ async function runOracle(interaction) {
   }
   if (n === 'iltifat') {
     const u = interaction.options.getUser('üye');
-    return interaction.reply({ content: `<@${u.id}>`, embeds: [e.setColor(COLORS.pink).setTitle('💐 Sana bir iltifat var!').setDescription(`> ${complimentText()}\n\n— <@${interaction.user.id}>`).setThumbnail(u.displayAvatarURL({ size: 256 }))] });
+    return interaction.reply({ embeds: [e.setColor(COLORS.pink).setTitle('💐 Sana bir iltifat var!').setDescription(`> ${complimentText()}\n\n— <@${interaction.user.id}> → <@${u.id}>`).setThumbnail(u.displayAvatarURL({ size: 256 }))], allowedMentions: { parse: [] } });
   }
   if (n === 'fal') {
     return interaction.reply({ embeds: [e.setColor(COLORS.purple).setTitle('🔮 Lores Kristal Küresi').setDescription(`*Dumanlar dağılıyor…*\n\n${fortuneText()}`)] });
