@@ -149,12 +149,16 @@ async function actorOf(req, guild) {
 }
 
 function botInviteUrl() {
-  const appId = CLIENT_ID || (botState.client && botState.client.user ? botState.client.user.id : '');
+  // Davet edilen uygulama her zaman çalışan bot tokenindeki bot olmalı. Eski veya
+  // başka bir uygulamaya ait CLIENT_ID, Discord'un uygulama açılışında takılmasına
+  // ya da yanlış botun davet edilmesine yol açabilir.
+  const appId = (botState.client && botState.client.user ? botState.client.user.id : '') || CLIENT_ID;
   if (!appId) return null;
   const params = new URLSearchParams({
     client_id: appId,
     permissions: '8',
-    scope: 'bot applications.commands'
+    scope: 'bot applications.commands',
+    integration_type: '0'
   });
   return `https://discord.com/oauth2/authorize?${params}`;
 }
