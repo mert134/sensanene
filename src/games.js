@@ -3,43 +3,6 @@
  */
 const eco = require('./economy');
 
-const SLOT_SYMBOLS = ['🍒', '🍋', '🍇', '🍉', '🔔', '⭐', '💎', '7️⃣'];
-
-// Her sembolün ağırlığı (küçük = daha sık çıkar)
-const WEIGHTS = { '🍒': 30, '🍋': 25, '🍇': 20, '🍉': 14, '🔔': 8, '⭐': 6, '💎': 2, '7️⃣': 1 };
-const TOTAL_WEIGHT = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
-
-function weightedPick() {
-  let roll = Math.random() * TOTAL_WEIGHT;
-  for (const symbol of SLOT_SYMBOLS) {
-    roll -= WEIGHTS[symbol];
-    if (roll <= 0) return symbol;
-  }
-  return SLOT_SYMBOLS[0];
-}
-
-function payoutMultiplier(reels) {
-  const [a, b, c] = reels;
-  if (a === b && b === c) {
-    // Yalnızca üç aynı sembol ödeme yapar. Çarpanlar yaklaşık %80 RTP sağlar.
-    const table = { '7️⃣': 500, '💎': 150, '⭐': 70, '🔔': 45, '🍉': 30, '🍇': 22, '🍋': 18, '🍒': 14 };
-    return table[a] || 4;
-  }
-  // İki sembol aynı olsa bile kazanılmaz; OwO tarzı üçlü eşleşme gerekir.
-  return 0;
-}
-
-/**
- * Slot çevirir. Bahis zaten düşülmemiş olmalı, bakiye kontrolü çağıran tarafta.
- * @returns { reels, multiplier, payout, profit }
- */
-function spin(bet) {
-  const reels = [weightedPick(), weightedPick(), weightedPick()];
-  const multiplier = payoutMultiplier(reels);
-  const payout = Math.floor(bet * multiplier);
-  return { reels, multiplier, payout, profit: payout - bet };
-}
-
 /**
  * Bahisli tek oyunluk işlem: parayı düşer, sonucu ekler.
  */
@@ -82,4 +45,4 @@ function dice(guildId, userId, bet, guess) {
   return { result, won, payout, balance, bet };
 }
 
-module.exports = { spin, placeBet, settle, coinflip, dice, SLOT_SYMBOLS };
+module.exports = { placeBet, settle, coinflip, dice };

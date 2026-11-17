@@ -30,10 +30,9 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - 50 rolü birlikte oluşturma, ön/son ekle toplu yeniden adlandırma, seçerek toplu silme ve tekil ad/renk düzenleme
 
 **Eğlence & ekonomi (hem panelde hem Discord'da)**
-- 🎰 OwO tarzı slot: yalnızca üç aynı sembol kazandırır; özel dönen makara animasyonu ve dengeli çarpanlar
 - 🪙 Yazı tura ve 🎲 zar oyunları için özel Lores casino animasyonları
 - Günlük ödül, cüzdan, sunucu sıralaması
-- Modern Discord `/` komutları: `/slot`, `/yazıtura`, `/zar`, `/günlük`, `/bakiye`, `/sıralama`, `/şans`, `/8ball`, `/espri`, `/yardım`
+- Modern Discord `/` komutları: `/yazıtura`, `/zar`, `/günlük`, `/bakiye`, `/sıralama`, `/şans`, `/8ball`, `/espri`, `/yardım`
 - Komutlar her sunucuya otomatik kaydolur; Discord seçenekleri ve kullanıcı/rol seçicileri doğrudan gösterir
 - Oyunlarda animasyonlu GIF'ler, markalı zengin kartlar, sonuç rengi, zaman ve bakiye bilgisi
 
@@ -87,7 +86,7 @@ server.js          → Express sunucusu + tüm API rotaları + OAuth2
 src/bot.js         → Discord client, komutlar, hoş geldin/otomatik rol
 src/moderation.js  → ban/kick/mute/uyarı/kanal/rol (yetki kontrolleri burada)
 src/economy.js     → coin cüzdanı, günlük ödül, sıralama
-src/games.js       → slot, yazı tura, zar mantığı
+src/games.js       → yazı tura ve zar mantığı
 src/settings.js    → sunucu ayarları + işlem kayıtları
 src/store.js       → JSON veritabanı
 src/demo.js        → DEMO_MODE sahte verisi

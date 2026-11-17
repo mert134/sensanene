@@ -283,33 +283,6 @@ textarea.input { resize: vertical; min-height: 76px; }
 .channel-row .acts { display: flex; gap: 6px; }
 .cat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 16px 0 6px; font-weight: 700; }
 
-/* ---------------- SLOT ---------------- */
-.slot-machine {
-  background: linear-gradient(180deg, #1b1428, #120f1c);
-  border: 1px solid #33254a;
-  border-radius: 18px; padding: 24px; text-align: center;
-  box-shadow: inset 0 0 60px rgba(241, 196, 15, 0.06);
-}
-.reels { display: flex; justify-content: center; gap: 12px; margin: 16px 0 20px; }
-.reel {
-  width: 88px; height: 104px; border-radius: 14px;
-  background: #0a0810; border: 2px solid #3a2b52;
-  display: grid; place-items: center; font-size: 46px;
-  box-shadow: inset 0 6px 18px rgba(0,0,0,.7);
-  transition: transform .12s;
-}
-.reel.spin { animation: spin .09s linear infinite; }
-@keyframes spin { 0% { transform: translateY(-3px); } 100% { transform: translateY(3px); } }
-.reel.win { border-color: var(--gold); box-shadow: 0 0 22px rgba(241,196,15,.5), inset 0 6px 18px rgba(0,0,0,.7); }
-.slot-msg { min-height: 44px; font-size: 14px; font-weight: 600; color: var(--muted); }
-.slot-msg.win { color: var(--gold); }
-.slot-msg.lose { color: #ff8b8d; }
-.coin-badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(241,196,15,.12); border: 1px solid rgba(241,196,15,.35);
-  color: var(--gold); padding: 6px 12px; border-radius: 9px;
-  font-weight: 700; font-size: 13.5px;
-}
 .leader-row {
   display: flex; align-items: center; gap: 9px; padding: 7px 0;
   border-bottom: 1px solid rgba(38,44,61,.6); font-size: 13px;

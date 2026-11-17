@@ -372,14 +372,6 @@ function router() {
     });
   });
 
-  r.post('/api/play/slot', (req, res) => {
-    const bet = Math.floor(Number(req.body.bet));
-    const start = games.placeBet(GUILD.id, DEMO_USER.id, bet);
-    if (start.error) return res.json({ error: start.error });
-    const spin = games.spin(bet);
-    const balance = games.settle(GUILD.id, DEMO_USER.id, bet, spin.payout, spin.multiplier > 0);
-    res.json({ ...spin, bet, balance });
-  });
 
   r.post('/api/play/coinflip', (req, res) =>
     res.json(games.coinflip(GUILD.id, DEMO_USER.id, Math.floor(Number(req.body.bet)), req.body.pick))
