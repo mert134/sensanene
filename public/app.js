@@ -1,0 +1,1027 @@
+/* =====================================================================
+   Panel istemcisi — tüm veriler /api üzerinden gelir.
+   ===================================================================== */
+
+const state = {
+  me: null,
+  guild: null,
+  guilds: [],
+  members: [],
+  channels: [],
+  roles: [],
+  selectedMember: null,
+  settings: null
+};
+
+const $ = (sel) => document.querySelector(sel);
+const el = (tag, props = {}, children = []) => {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') node.className = v;
+    else if (k === 'html') node.innerHTML = v;
+    else if (k === 'text') node.textContent = v;
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined) node.setAttribute(k, v);
+  }
+  for (const c of [].concat(children)) if (c) node.append(c);
+  return node;
+};
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  if (res.status === 401) {
+    showLogin();
+    throw new Error('Oturum sona erdi, tekrar giriş yap.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Hata (${res.status})`);
+  return data;
+}
+
+function toast(msg, type = '') {
+  const t = el('div', { class: `toast ${type}`, text: msg });
+  $('#toasts').append(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transform = 'translateX(30px)';
+    t.style.transition = '.25s';
+    setTimeout(() => t.remove(), 260);
+  }, 4000);
+}
+
+function esc(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return 'az önce';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} dk önce`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} sa önce`;
+  return `${Math.floor(h / 24)} gün önce`;
+}
+
+function fmtDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts = [];
+  if (d) parts.push(`${d} gün`);
+  if (h) parts.push(`${h} sa`);
+  if (m) parts.push(`${m} dk`);
+  return parts.join(' ') || `${s} sn`;
+}
+
+/* ============================ OTURUM ============================ */
+function showLogin(warning) {
+  $('#login').style.display = 'grid';
+  $('#app').style.display = 'none';
+  if (warning) $('#loginWarn').innerHTML = `<div class="warn-box">${esc(warning)}</div>`;
+}
+
+function showApp() {
+  $('#login').style.display = 'none';
+  $('#app').style.display = 'block';
+}
+
+async function boot() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('hata')) {
+    showLogin('Giriş başarısız: ' + params.get('hata'));
+    history.replaceState({}, '', '/');
+    return;
+  }
+
+  let me;
+  try {
+    me = await api('/api/me');
+  } catch {
+    return showLogin();
+  }
+  state.me = me;
+
+  if (!me.configured) {
+    showLogin();
+    $('#loginWarn').innerHTML = `<div class="warn-box">
+      <b>Kurulum tamamlanmadı.</b><br />
+      Render &gt; Environment bölümüne şu değişkenleri ekle:<br />
+      <code>DISCORD_TOKEN</code>, <code>CLIENT_ID</code>, <code>CLIENT_SECRET</code>,<br />
+      <code>PUBLIC_URL</code>, <code>SESSION_SECRET</code>
+    </div>`;
+    return;
+  }
+
+  if (!me.user) return showLogin();
+
+  showApp();
+  $('#userPill').textContent = me.user.globalName || me.user.username;
+  if (me.user.avatar) {
+    $('#userAvatar').src = `https://cdn.discordapp.com/avatars/${me.user.id}/${me.user.avatar}.png?size=64`;
+  } else {
+    $('#userAvatar').src = `https://cdn.discordapp.com/embed/avatars/0.png`;
+  }
+
+  updateBotStatus(me);
+
+  await loadGuilds();
+}
+
+function updateBotStatus(me) {
+  const on = me.botReady;
+  $('#botStatus').innerHTML = `<span class="dot ${on ? 'on' : 'off'}"></span>${on ? 'Bot çevrimiçi' : 'Bot çevrimdışı'}<br /><span style="opacity:.7">${on && me.botTag ? esc(me.botTag) : 'token kontrol et'}</span>`;
+}
+
+async function loadGuilds() {
+  try {
+    const { guilds } = await api('/api/guilds');
+    state.guilds = guilds;
+    const manageable = guilds.filter((g) => g.canManage);
+    if (!guilds.length) {
+      $('#guildName').textContent = 'Sunucu yok';
+      return showWelcome();
+    }
+    if (manageable.length === 1) {
+      await selectGuild(manageable[0]);
+    } else {
+      openGuildPicker();
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function selectGuild(guild) {
+  try {
+    await api('/api/guild/select', { method: 'POST', body: { guildId: guild.id } });
+    state.guild = guild;
+    $('#guildName').textContent = guild.name;
+    if (guild.icon) {
+      const img = $('#guildIcon');
+      img.src = guild.icon;
+      img.style.display = 'block';
+      $('#guildFallback').style.display = 'none';
+    } else {
+      $('#guildIcon').style.display = 'none';
+      const fb = $('#guildFallback');
+      fb.style.display = 'grid';
+      fb.textContent = guild.name.charAt(0).toUpperCase();
+    }
+    closeModal();
+    await loadDashboard();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+function openGuildPicker() {
+  if (!state.guilds.length) return;
+  const list = el('div', { class: 'channel-list' });
+  for (const g of state.guilds) {
+    list.append(
+      el('button', { class: 'channel-row', style: 'cursor:pointer', onclick: () => selectGuild(g) }, [
+        g.icon ? el('img', { src: g.icon, style: 'width:32px;height:32px;border-radius:10px' }) : el('div', { class: 'ico', text: '🏠' }),
+        el('div', { class: 'nm', html: `${esc(g.name)}${g.memberCount ? `<small>${g.memberCount} üye</small>` : ''}` }),
+        g.canManage ? el('span', { class: 'badge green', text: 'yönetilebilir' }) : el('span', { class: 'badge red', text: 'yetki yok' })
+      ])
+    );
+  }
+  openModal([
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Sunucu Seç' }), el('div', { class: 'sub', text: 'Botun bulunduğu sunucular' })])]),
+    list
+  ]);
+}
+
+function showWelcome() {
+  $('#pageTitle').textContent = 'Sunucu bulunamadı';
+  $('#pageSub').textContent = 'Botu bir sunucuya eklemen gerekiyor';
+  for (const s of document.querySelectorAll('.section')) s.classList.remove('active');
+  $('#sec-dashboard').classList.add('active');
+  $('#sec-dashboard').innerHTML = `
+    <div class="card" style="text-align:center;padding:50px 20px">
+      <div style="font-size:46px;margin-bottom:14px">🤖</div>
+      <h3 style="justify-content:center;font-size:18px">Botu henüz bir sunucuya eklemedin</h3>
+      <p style="color:var(--muted);font-size:13.5px;line-height:1.8;margin:12px 0 22px">
+        Botu yönetici olarak eklediğin sunucu burada otomatik görünecek.
+      </p>
+      <button class="btn btn-primary" onclick="copyInvite()">🔗 Davet Linkini Kopyala</button>
+    </div>`;
+}
+
+async function logout() {
+  await fetch('/auth/logout', { method: 'POST' });
+  location.reload();
+}
+
+/* ============================ NAVİGASYON ============================ */
+document.querySelectorAll('.nav-item[data-section]').forEach((btn) => {
+  btn.addEventListener('click', () => navigate(btn.dataset.section));
+});
+
+const TITLES = {
+  dashboard: ['Genel Bakış', 'Sunucu durumu ve bot bilgileri'],
+  members: ['Üyeler & Moderasyon', 'Bir üyeye tıkla, işlemi seç'],
+  channels: ['Kanallar', 'Oluştur, düzenle, sil'],
+  roles: ['Roller', 'Rol oluştur, ver, al'],
+  games: ['Oyunlar', 'Slot, yazı tura, zar ve ekonomi'],
+  settings: ['Ayarlar', 'Bot davranışını yapılandır'],
+  logs: ['Kayıtlar', 'Son 100 işlem']
+};
+
+function navigate(section) {
+  document.querySelectorAll('.nav-item[data-section]').forEach((b) => b.classList.toggle('active', b.dataset.section === section));
+  document.querySelectorAll('.section').forEach((s) => s.classList.toggle('active', s.id === `sec-${section}`));
+  const [title, sub] = TITLES[section] || ['', ''];
+  $('#pageTitle').textContent = title;
+  $('#pageSub').textContent = sub;
+
+  if (section === 'dashboard') loadDashboard();
+  if (section === 'members') loadMembers();
+  if (section === 'channels') { loadChannels(); loadBans(); }
+  if (section === 'roles') loadRoles();
+  if (section === 'games') loadGame();
+  if (section === 'settings') loadSettings();
+  if (section === 'logs') loadLogs();
+}
+
+/* ============================ MODAL ============================ */
+function openModal(children) {
+  const body = $('#modalBody');
+  body.innerHTML = '';
+  for (const c of children) body.append(c);
+  $('#modal').classList.add('open');
+}
+function closeModal() {
+  $('#modal').classList.remove('open');
+}
+
+/* ============================ DASHBOARD ============================ */
+async function loadDashboard() {
+  try {
+    const d = await api('/api/overview');
+    $('#stMembers').textContent = d.guild.memberCount;
+    $('#stBots').textContent = `${d.guild.botCount} bot · ${d.guild.boostCount} takviye`;
+    $('#stChannels').textContent = d.counts.text + d.counts.voice;
+    $('#stChannelHint').textContent = `${d.counts.text} metin · ${d.counts.voice} ses`;
+    $('#stBans').textContent = d.counts.bans ?? '—';
+    $('#stPing').textContent = d.bot.ping != null ? `${d.bot.ping}ms` : '—';
+    $('#stUptime').textContent = d.bot.uptime ? `${fmtDuration(d.bot.uptime)} çalışıyor` : 'çevrimdışı';
+
+    $('#botInfo').innerHTML = `
+      <div><b>Durum:</b> ${d.bot.ready ? '<span class="badge green">çevrimiçi</span>' : '<span class="badge red">çevrimdışı</span>'}</div>
+      <div><b>Etiket:</b> ${esc(d.bot.tag || '—')}</div>
+      <div><b>Sunucu:</b> ${d.bot.guildCount} adet</div>
+      <div><b>Komut kullanımı:</b> ${d.bot.commands}</div>
+      <div><b>Gecikme:</b> ${d.bot.ping ?? '—'} ms</div>
+      <div><b>Roller:</b> ${d.counts.roles} · <b>Emoji:</b> ${d.counts.emojis}</div>`;
+
+    const perms = d.user.permissions;
+    const keyPerms = [
+      ['Administrator', 'Yönetici'],
+      ['BanMembers', 'Üye Yasakla'],
+      ['KickMembers', 'Üye At'],
+      ['ModerateMembers', 'Sustur'],
+      ['ManageChannels', 'Kanal Yönet'],
+      ['ManageRoles', 'Rol Yönet'],
+      ['ManageGuild', 'Sunucu Yönet'],
+      ['ManageMessages', 'Mesaj Yönet']
+    ];
+    $('#myPerms').innerHTML =
+      (d.user.isOwner ? '<div><span class="badge green">Sunucu Sahibi</span></div>' : '') +
+      keyPerms
+        .map(([k, label]) => `<span class="role-chip">${perms.includes(k) ? '✅' : '❌'} ${label}</span>`)
+        .join('');
+
+    renderLogs($('#recentLogs'), d.recentLogs);
+    $('#logCount').textContent = d.recentLogs.length;
+
+    // bot detayları ayarlar sekmesinde de kullanılıyor
+    const details = $('#botDetails');
+    if (details) {
+      details.innerHTML = `
+        <div><b>Durum:</b> ${d.bot.ready ? '<span class="badge green">çevrimiçi</span>' : '<span class="badge red">çevrimdışı</span>'}</div>
+        <div><b>Bot:</b> ${esc(d.bot.tag || '—')}</div>
+        <div><b>Çalışma süresi:</b> ${d.bot.uptime ? fmtDuration(d.bot.uptime) : '—'}</div>
+        <div><b>Toplam sunucu:</b> ${d.bot.guildCount}</div>
+        <div><b>Bu sunucudaki komut:</b> ${d.bot.commands}</div>`;
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+/* ============================ ÜYELER ============================ */
+async function loadMembers() {
+  const grid = $('#memberGrid');
+  grid.innerHTML = '<div class="empty"><div class="spinner"></div><div style="margin-top:12px">Üyeler yükleniyor…</div></div>';
+  try {
+    const d = await api('/api/members');
+    state.members = d.members;
+    renderMembers();
+  } catch (err) {
+    grid.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+function renderMembers() {
+  const q = ($('#memberSearch').value || '').toLowerCase().trim();
+  const filter = $('#memberFilter').value;
+  const grid = $('#memberGrid');
+
+  let list = state.members;
+  if (q) list = list.filter((m) => m.username.toLowerCase().includes(q) || m.displayName.toLowerCase().includes(q) || m.id.includes(q));
+  if (filter === 'muted') list = list.filter((m) => m.muted);
+  if (filter === 'warned') list = list.filter((m) => m.warnings > 0);
+  if (filter === 'bots') list = list.filter((m) => m.bot);
+
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty">Eşleşen üye yok.</div>';
+    return;
+  }
+
+  grid.innerHTML = '';
+  for (const m of list) {
+    const tags = el('div', { class: 'tags' });
+    if (m.bot) tags.append(el('span', { class: 'tag bot', text: 'BOT' }));
+    if (m.muted) tags.append(el('span', { class: 'tag muted', text: 'SUSTURULMUŞ' }));
+    if (m.warnings > 0) tags.append(el('span', { class: 'tag warnc', text: `${m.warnings} UYARI` }));
+
+    grid.append(
+      el('button', { class: 'member-card', onclick: () => openMember(m.id) }, [
+        el('img', { src: m.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png', alt: '' }),
+        el('div', { class: 'info' }, [
+          el('div', { class: 'n', text: m.displayName }),
+          el('div', { class: 'u', text: '@' + m.username }),
+          tags
+        ])
+      ])
+    );
+  }
+}
+
+async function openMember(id) {
+  openModal([el('div', { class: 'empty' }, [el('div', { class: 'spinner' })])]);
+  try {
+    const [m, rolesData] = await Promise.all([api(`/api/members/${id}`), api('/api/roles')]);
+    state.selectedMember = m;
+    state.roles = rolesData.roles;
+    renderMemberModal(m);
+  } catch (err) {
+    openModal([el('div', { class: 'empty', text: err.message })]);
+  }
+}
+
+function renderMemberModal(m) {
+  const head = el('div', { class: 'modal-head' }, [
+    el('img', { src: m.avatar }),
+    el('div', {}, [
+      el('h3', { text: m.displayName }),
+      el('div', { class: 'sub', text: `@${m.username} · ${m.id}` })
+    ]),
+    el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+  ]);
+
+  const info = el('div', { class: 'hint', style: 'margin-bottom:14px' });
+  info.innerHTML = `
+    Katılım: <b>${new Date(m.joinedAt).toLocaleDateString('tr-TR')}</b> ·
+    Hesap: <b>${new Date(m.createdAt).toLocaleDateString('tr-TR')}</b>
+    ${m.muted ? `<br /><span style="color:var(--yellow)">🔇 Susturulmuş${m.mutedUntil ? ' — bitiş: ' + new Date(m.mutedUntil).toLocaleString('tr-TR') : ' (kalıcı)'}</span>` : ''}
+    ${m.warnings.length ? `<br /><span style="color:var(--red)">⚠️ ${m.warnings.length} uyarı</span>` : ''}`;
+
+  // --- İşlem seçimi (admin butonları)
+  const actions = [
+    ['ban', '🔨', 'Yasakla'],
+    ['kick', '👢', 'At'],
+    ['mute', '🔇', 'Sustur'],
+    ['unmute', '🔊', 'Susturmayı Kaldır'],
+    ['warn', '⚠️', 'Uyar'],
+    ['roles', '🎭', 'Rol Ver / Al']
+  ];
+  const actionGrid = el('div', { class: 'action-grid' });
+  const detailBox = el('div', { id: 'actionDetail' });
+
+  for (const [key, icon, label] of actions) {
+    actionGrid.append(
+      el('button', { class: 'action-btn', 'data-action': key, onclick: () => selectAction(key) }, [
+        el('span', { text: icon }),
+        el('span', { text: label })
+      ])
+    );
+  }
+
+  const roleSection = el('div', { style: 'margin-top:6px' });
+  roleSection.innerHTML = `<label class="f">Mevcut roller</label><div id="memberRoles"></div>`;
+  const chips = el('div');
+  for (const r of m.roles) {
+    chips.append(
+      el('span', { class: 'role-chip' }, [
+        el('span', { class: 'role-dot', style: `background:${r.color === '#000000' ? '#99aab5' : r.color}` }),
+        el('span', { text: r.name }),
+        el('button', { class: 'x', text: '✕', title: 'Rolü al', onclick: () => removeRole(m.id, r.id, r.name) })
+      ])
+    );
+  }
+  if (!m.roles.length) chips.append(el('span', { class: 'hint', text: 'Rol yok' }));
+
+  const addRoleRow = el('div', { class: 'row', style: 'margin-top:10px' }, [
+    el('select', { class: 'input', id: 'rolePick' }, state.roles.map((r) => el('option', { value: r.id, text: r.name }))),
+    el('button', { class: 'btn btn-primary', style: 'flex:0 0 auto', text: '+ Ver', onclick: () => addRole(m.id) })
+  ]);
+
+  const warnList = el('div', { style: 'margin-top:14px' });
+  if (m.warnings.length) {
+    warnList.innerHTML = `<label class="f">Uyarı geçmişi</label>` +
+      m.warnings.map((w) => `<div class="log-row"><span class="ic">⚠️</span><span class="txt">${esc(w.reason)} <span class="mono">— ${esc(w.by)}</span></span><span class="time">${timeAgo(w.at)}</span></div>`).join('');
+  }
+
+  openModal([
+    head,
+    info,
+    el('label', { class: 'f', text: 'İşlem seç' }),
+    actionGrid,
+    detailBox,
+    roleSection,
+    warnList
+  ]);
+
+  roleSection.append(chips, addRoleRow);
+
+  function selectAction(key) {
+    document.querySelectorAll('.action-btn').forEach((b) => b.classList.toggle('sel', b.dataset.action === key));
+
+    if (key === 'roles') {
+      detailBox.innerHTML = '';
+      if (roleSection.scrollIntoView) roleSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+
+    const box = el('div', { class: 'card', style: 'background:var(--panel-2);margin-bottom:12px' });
+
+    if (key === 'mute') {
+      const chipsBox = el('div', { class: 'chip-row', style: 'margin-bottom:12px' });
+      const durations = [
+        ['60 sn', 60000],
+        ['5 dk', 300000],
+        ['10 dk', 600000],
+        ['1 saat', 3600000],
+        ['1 gün', 86400000],
+        ['7 gün', 604800000]
+      ];
+      let chosen = 600000;
+      durations.forEach(([label, ms], i) => {
+        const chip = el('button', { class: `chip${i === 2 ? ' sel' : ''}`, text: label, onclick: (e) => {
+          chosen = ms;
+          chipsBox.querySelectorAll('.chip').forEach((c) => c.classList.remove('sel'));
+          e.target.classList.add('sel');
+        } });
+        chipsBox.append(chip);
+      });
+      box.append(el('label', { class: 'f', text: 'Süre' }), chipsBox);
+      box.append(el('label', { class: 'f', text: 'Sebep' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. spam' }));
+      box.append(el('div', { style: 'margin-top:12px' }, [
+        el('button', { class: 'btn btn-warn btn-block', text: '🔇 Sustur', onclick: () => doMod('mute', m.id, { durationMs: chosen }) })
+      ]));
+    } else if (key === 'ban') {
+      box.append(el('label', { class: 'f', text: 'Sebep' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. kural ihlali' }));
+      box.append(el('label', { class: 'f', text: 'Mesaj geçmişi' }), el('select', { class: 'input', id: 'actDelete' }, [
+        el('option', { value: '0', text: 'Silme' }),
+        el('option', { value: '3600', text: 'Son 1 saat' }),
+        el('option', { value: '21600', text: 'Son 6 saat' }),
+        el('option', { value: '86400', text: 'Son 24 saat' }),
+        el('option', { value: '604800', text: 'Son 7 gün' })
+      ]));
+      box.append(el('div', { style: 'margin-top:12px' }, [
+        el('button', { class: 'btn btn-danger btn-block', text: '🔨 Yasakla', onclick: () => doMod('ban', m.id) })
+      ]));
+    } else if (key === 'kick') {
+      box.append(el('label', { class: 'f', text: 'Sebep' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. uygunsuz davranış' }));
+      box.append(el('div', { style: 'margin-top:12px' }, [
+        el('button', { class: 'btn btn-danger btn-block', text: '👢 Sunucudan At', onclick: () => doMod('kick', m.id) })
+      ]));
+    } else if (key === 'warn') {
+      box.append(el('label', { class: 'f', text: 'Uyarı sebebi' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. küfür' }));
+      box.append(el('div', { class: 'hint', text: '3 uyarıya ulaşan üye otomatik 30 dk susturulur.' }));
+      box.append(el('div', { style: 'margin-top:12px' }, [
+        el('button', { class: 'btn btn-warn btn-block', text: '⚠️ Uyarı Ver', onclick: () => doMod('warn', m.id) })
+      ]));
+    } else if (key === 'unmute') {
+      box.append(el('div', { class: 'hint', text: 'Timeout veya susturma rolü kaldırılır.' }));
+      box.append(el('div', { style: 'margin-top:12px' }, [
+        el('button', { class: 'btn btn-ok btn-block', text: '🔊 Susturmayı Kaldır', onclick: () => doMod('unmute', m.id) })
+      ]));
+    }
+
+    detailBox.innerHTML = '';
+    detailBox.append(box);
+  }
+}
+
+async function doMod(action, userId, extra = {}) {
+  const reason = $('#actReason') ? $('#actReason').value : '';
+  const deleteSeconds = $('#actDelete') ? Number($('#actDelete').value) : 0;
+  try {
+    const res = await api(`/api/mod/${action}`, { method: 'POST', body: { userId, reason, deleteSeconds, ...extra } });
+    if (res.ok) {
+      toast(res.message || 'İşlem tamam', 'ok');
+      closeModal();
+      loadMembers();
+    } else {
+      toast(res.error || 'İşlem yapılamadı', 'err');
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function addRole(userId) {
+  const roleId = $('#rolePick').value;
+  if (!roleId) return;
+  try {
+    const res = await api('/api/roles/add', { method: 'POST', body: { userId, roleId } });
+    if (res.ok) {
+      toast(res.message, 'ok');
+      openMember(userId);
+    } else toast(res.error, 'err');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function removeRole(userId, roleId, name) {
+  try {
+    const res = await api('/api/roles/remove', { method: 'POST', body: { userId, roleId } });
+    if (res.ok) {
+      toast(res.message, 'ok');
+      openMember(userId);
+    } else toast(res.error, 'err');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+/* ============================ KANALLAR ============================ */
+const CHANNEL_ICONS = { text: '#️⃣', voice: '🔊', category: '📂', announcement: '📢', stage: '🎙️', forum: '💬' };
+
+async function loadChannels() {
+  try {
+    const [d, c] = await Promise.all([api('/api/channels'), api('/api/settings')]);
+    state.channels = d.channels;
+    state.settings = c;
+    renderChannels();
+  } catch (err) {
+    $('#channelList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+function renderChannels() {
+  const box = $('#channelList');
+  box.innerHTML = '';
+  if (!state.channels.length) {
+    box.innerHTML = '<div class="empty">Kanal yok.</div>';
+    return;
+  }
+
+  const categories = state.channels.filter((c) => c.type === 'category');
+  const others = state.channels.filter((c) => c.type !== 'category');
+
+  const makeRow = (ch) =>
+    el('div', { class: 'channel-row' }, [
+      el('span', { class: 'ico', text: CHANNEL_ICONS[ch.type] || '❔' }),
+      el('div', { class: 'nm', html: `${esc(ch.name)}<small>${ch.type}${ch.topic ? ' · ' + esc(ch.topic.slice(0, 60)) : ''}</small>` }),
+      el('div', { class: 'acts' }, [
+        el('button', { class: 'btn btn-sm', text: '✏️ Düzenle', onclick: () => editChannel(ch) }),
+        el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Sil', onclick: () => deleteChannel(ch) })
+      ])
+    ]);
+
+  const uncategorized = others.filter((c) => !c.parentId || !categories.some((cat) => cat.id === c.parentId));
+  if (uncategorized.length) {
+    box.append(el('div', { class: 'cat-head', text: 'Kategorisiz' }));
+    uncategorized.forEach((ch) => box.append(makeRow(ch)));
+  }
+  for (const cat of categories) {
+    box.append(el('div', { class: 'cat-head', text: `📂 ${cat.name}` }));
+    others.filter((c) => c.parentId === cat.id).forEach((ch) => box.append(makeRow(ch)));
+  }
+}
+
+function editChannel(ch) {
+  const body = [
+    el('div', { class: 'modal-head' }, [
+      el('div', { class: 'ico', style: 'font-size:26px', text: CHANNEL_ICONS[ch.type] || '❔' }),
+      el('div', {}, [el('h3', { text: 'Kanalı Düzenle' }), el('div', { class: 'sub', text: ch.type })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    ]),
+    el('label', { class: 'f', text: 'Kanal adı' }),
+    el('input', { class: 'input', id: 'chName', value: ch.name, maxlength: '100' }),
+    el('div', { style: 'height:12px' })
+  ];
+  if (ch.type === 'text' || ch.type === 'announcement' || ch.type === 'forum') {
+    body.push(el('label', { class: 'f', text: 'Kanal konusu' }));
+    body.push(el('textarea', { class: 'input', id: 'chTopic', placeholder: 'Kanal açıklaması…', text: ch.topic || '' }));
+  }
+  body.push(el('div', { class: 'row', style: 'margin-top:14px' }, [
+    el('button', { class: 'btn btn-primary', text: '💾 Kaydet', onclick: () => saveChannel(ch) }),
+    el('button', { class: 'btn btn-danger', text: '🗑 Kanalı Sil', onclick: () => { closeModal(); deleteChannel(ch); } })
+  ]));
+  openModal(body);
+}
+
+async function saveChannel(ch) {
+  const name = $('#chName').value.trim();
+  const topicEl = $('#chTopic');
+  try {
+    if (name && name !== ch.name) {
+      const r = await api('/api/channels/rename', { method: 'POST', body: { channelId: ch.id, name } });
+      if (!r.ok) return toast(r.error, 'err');
+    }
+    if (topicEl && topicEl.value !== (ch.topic || '')) {
+      const r = await api('/api/channels/topic', { method: 'POST', body: { channelId: ch.id, topic: topicEl.value } });
+      if (!r.ok) return toast(r.error, 'err');
+    }
+    toast('Kanal güncellendi', 'ok');
+    closeModal();
+    loadChannels();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+function deleteChannel(ch) {
+  openModal([
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Kanalı sil?' })])]),
+    el('p', { style: 'font-size:13.5px;color:var(--muted);line-height:1.8;margin-bottom:18px', html: `<b>#${esc(ch.name)}</b> kanalı ve içindeki tüm mesajlar kalıcı olarak silinecek.` }),
+    el('div', { class: 'row' }, [
+      el('button', { class: 'btn', text: 'Vazgeç', onclick: closeModal }),
+      el('button', { class: 'btn btn-danger', text: '🗑 Evet, sil', onclick: async () => {
+        try {
+          const r = await api('/api/channels/delete', { method: 'POST', body: { channelId: ch.id } });
+          if (r.ok) { toast(r.message, 'ok'); closeModal(); loadChannels(); }
+          else toast(r.error, 'err');
+        } catch (err) { toast(err.message, 'err'); }
+      } })
+    ])
+  ]);
+}
+
+function openChannelCreate() {
+  openModal([
+    el('div', { class: 'modal-head' }, [
+      el('div', {}, [el('h3', { text: 'Kanal Oluştur' }), el('div', { class: 'sub', text: 'Metin, ses veya kategori' })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    ]),
+    el('label', { class: 'f', text: 'Kanal adı' }),
+    el('input', { class: 'input', id: 'newChName', placeholder: 'genel-sohbet' }),
+    el('div', { style: 'height:12px' }),
+    el('label', { class: 'f', text: 'Tür' }),
+    el('select', { class: 'input', id: 'newChType' }, [
+      el('option', { value: 'text', text: '📝 Metin kanalı' }),
+      el('option', { value: 'voice', text: '🔊 Ses kanalı' }),
+      el('option', { value: 'category', text: '📂 Kategori' }),
+      el('option', { value: 'announcement', text: '📢 Duyuru kanalı' })
+    ]),
+    el('div', { style: 'height:12px' }),
+    el('label', { class: 'f', text: 'Kategori (opsiyonel)' }),
+    el('select', { class: 'input', id: 'newChParent' }, [
+      el('option', { value: '', text: '— yok —' }),
+      ...state.channels.filter((c) => c.type === 'category').map((c) => el('option', { value: c.id, text: c.name }))
+    ]),
+    el('div', { style: 'margin-top:16px' }, [
+      el('button', { class: 'btn btn-primary btn-block', text: '➕ Oluştur', onclick: async () => {
+        const name = $('#newChName').value.trim();
+        const type = $('#newChType').value;
+        const categoryId = $('#newChParent').value || null;
+        if (!name) return toast('Kanal adı gerekli', 'warn');
+        try {
+          const r = await api('/api/channels/create', { method: 'POST', body: { name, type, categoryId } });
+          if (r.ok) { toast(r.message, 'ok'); closeModal(); loadChannels(); }
+          else toast(r.error, 'err');
+        } catch (err) { toast(err.message, 'err'); }
+      } })
+    ])
+  ]);
+}
+
+async function loadBans() {
+  try {
+    const d = await api('/api/bans');
+    $('#banCount').textContent = d.bans.length;
+    const box = $('#banList');
+    box.innerHTML = '';
+    if (!d.bans.length) {
+      box.innerHTML = '<div class="empty">Yasaklı üye yok. 🎉</div>';
+      return;
+    }
+    for (const b of d.bans) {
+      box.append(
+        el('div', { class: 'channel-row' }, [
+          el('img', { src: b.avatar, style: 'width:26px;height:26px;border-radius:50%' }),
+          el('div', { class: 'nm', html: `${esc(b.username)}<small>${esc(b.reason || 'sebep yok')}</small>` }),
+          el('button', { class: 'btn btn-sm btn-ok', text: 'Yasağı kaldır', onclick: async () => {
+            try {
+              const r = await api('/api/mod/unban', { method: 'POST', body: { userId: b.id, reason: 'panelden kaldırıldı' } });
+              if (r.ok) { toast(r.message, 'ok'); loadBans(); loadChannels(); }
+              else toast(r.error, 'err');
+            } catch (err) { toast(err.message, 'err'); }
+          } })
+        ])
+      );
+    }
+  } catch (err) {
+    $('#banList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+async function quickUnban() {
+  const id = $('#unbanInput').value.trim();
+  if (!id) return toast('Kullanıcı ID gir', 'warn');
+  try {
+    const r = await api('/api/mod/unban', { method: 'POST', body: { userId: id, reason: 'panelden kaldırıldı' } });
+    if (r.ok) { toast(r.message, 'ok'); $('#unbanInput').value = ''; loadBans(); }
+    else toast(r.error, 'err');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+/* ============================ ROLLER ============================ */
+async function loadRoles() {
+  try {
+    const d = await api('/api/roles');
+    state.roles = d.roles;
+    const box = $('#roleList');
+    box.innerHTML = '';
+    if (!d.roles.length) {
+      box.innerHTML = '<div class="empty">Rol yok.</div>';
+      return;
+    }
+    for (const r of d.roles) {
+      box.append(
+        el('div', { class: 'channel-row' }, [
+          el('span', { class: 'role-dot', style: `background:${r.color === '#000000' ? '#99aab5' : r.color};width:12px;height:12px` }),
+          el('div', { class: 'nm', html: `${esc(r.name)}<small>${r.memberCount} üye · sıra ${r.position}${r.managed ? ' · bot rolü' : ''}</small>` }),
+          el('div', { class: 'acts' }, [
+            !r.managed && el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Rolü sil', onclick: () => deleteRole(r) })
+          ])
+        ])
+      );
+    }
+  } catch (err) {
+    $('#roleList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+async function createRole() {
+  const name = $('#newRoleName').value.trim();
+  const color = $('#newRoleColor').value;
+  if (!name) return toast('Rol adı gir', 'warn');
+  try {
+    const r = await api('/api/roles/create', { method: 'POST', body: { name, color } });
+    if (r.ok) {
+      toast(r.message, 'ok');
+      $('#newRoleName').value = '';
+      loadRoles();
+    } else toast(r.error, 'err');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function deleteRole(role) {
+  if (!confirm(`"${role.name}" rolü silinsin mi? (${role.memberCount} üyeden kaldırılacak)`)) return;
+  try {
+    const r = await api('/api/roles/delete', { method: 'POST', body: { roleId: role.id } });
+    if (r.ok) { toast(r.message, 'ok'); loadRoles(); }
+    else toast(r.error, 'err');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+/* ============================ OYUNLAR ============================ */
+async function loadGame() {
+  try {
+    const d = await api('/api/play/balance');
+    $('#slotBalance').textContent = d.coins;
+    $('#myStats').innerHTML = `
+      <div><b>Coin:</b> ${d.coins}</div>
+      <div><b>Oynanan oyun:</b> ${d.games}</div>
+      <div><b>Kazanç:</b> ${d.wins} · <b>Kayıp:</b> ${d.losses}</div>
+      <div><b>Sıralama:</b> ${d.rank ? '#' + d.rank : '—'}</div>`;
+    const board = $('#leaderboard');
+    board.innerHTML = '';
+    if (!d.leaderboard.length) {
+      board.innerHTML = '<div class="empty">Henüz kimse oynamamış.</div>';
+    } else {
+      d.leaderboard.forEach((u, i) => {
+        board.append(
+          el('div', { class: 'leader-row' }, [
+            el('span', { class: 'rank', text: ['🥇', '🥈', '🥉'][i] || `#${i + 1}` }),
+            u.avatar ? el('img', { src: u.avatar }) : el('div', {}),
+            el('span', { text: u.name }),
+            el('span', { class: 'coins', text: `${u.coins} 💰` })
+          ])
+        );
+      });
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+function setBet(v) {
+  const bal = Number($('#slotBalance').textContent) || 0;
+  if (v === 'hepsi') $('#slotBet').value = bal;
+  else if (v === 'yarı') $('#slotBet').value = Math.floor(bal / 2);
+  else $('#slotBet').value = v;
+}
+
+const SPIN_CHARS = ['🍒', '🍋', '🍇', '🍉', '🔔', '⭐', '💎', '7️⃣'];
+
+async function playSlot() {
+  const bet = Number($('#slotBet').value);
+  if (!bet || bet < 10) return toast('Bahis en az 10 coin olmalı', 'warn');
+
+  const btn = $('#spinBtn');
+  btn.disabled = true;
+  const reels = [$('#reel0'), $('#reel1'), $('#reel2')];
+  reels.forEach((r) => { r.classList.add('spin'); r.classList.remove('win'); });
+  $('#slotMsg').className = 'slot-msg';
+  $('#slotMsg').textContent = 'Çevriliyor…';
+
+  const ticker = setInterval(() => {
+    reels.forEach((r) => { r.textContent = SPIN_CHARS[Math.floor(Math.random() * SPIN_CHARS.length)]; });
+  }, 80);
+
+  try {
+    const res = await api('/api/play/slot', { method: 'POST', body: { bet } });
+    await new Promise((r) => setTimeout(r, 700));
+    clearInterval(ticker);
+
+    if (res.error) {
+      reels.forEach((r) => r.classList.remove('spin'));
+      $('#slotMsg').textContent = res.error;
+      $('#slotMsg').className = 'slot-msg lose';
+      btn.disabled = false;
+      return;
+    }
+
+    reels.forEach((r, i) => {
+      r.classList.remove('spin');
+      r.textContent = res.reels[i];
+      if (res.multiplier > 0) r.classList.add('win');
+    });
+
+    if (res.multiplier > 0) {
+      $('#slotMsg').className = 'slot-msg win';
+      $('#slotMsg').textContent = `🎉 x${res.multiplier} → +${res.payout} coin!`;
+      toast(`Kazandın! +${res.payout} coin`, 'ok');
+    } else {
+      $('#slotMsg').className = 'slot-msg lose';
+      $('#slotMsg').textContent = `Kaybettin. -${res.bet} coin`;
+    }
+    $('#slotBalance').textContent = res.balance;
+    loadGame();
+  } catch (err) {
+    clearInterval(ticker);
+    reels.forEach((r) => r.classList.remove('spin'));
+    $('#slotMsg').textContent = err.message;
+    toast(err.message, 'err');
+  }
+  btn.disabled = false;
+}
+
+async function playCoinflip(pick) {
+  const bet = Number($('#othBet').value);
+  if (!bet || bet < 10) return toast('Bahis en az 10 coin olmalı', 'warn');
+  try {
+    const res = await api('/api/play/coinflip', { method: 'POST', body: { bet, pick } });
+    if (res.error) return toast(res.error, 'err');
+    $('#othMsg').innerHTML = `🪙 Sonuç: <b>${res.result}</b> — ${res.won ? `<span style="color:var(--green)">+${res.payout} coin</span>` : `<span style="color:var(--red)">-${res.bet} coin</span>`} · Bakiye: ${res.balance}`;
+    toast(res.won ? `Kazandın! +${res.payout} coin` : `Kaybettin -${res.bet} coin`, res.won ? 'ok' : 'err');
+    loadGame();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function playDice() {
+  const bet = Number($('#othBet').value);
+  const guess = Number($('#diceGuess').value);
+  if (!bet || bet < 10) return toast('Bahis en az 10 coin olmalı', 'warn');
+  try {
+    const res = await api('/api/play/dice', { method: 'POST', body: { bet, guess } });
+    if (res.error) return toast(res.error, 'err');
+    $('#othMsg').innerHTML = `🎲 Zar: <b>${res.result}</b> — ${res.won ? `<span style="color:var(--green)">+${res.payout} coin</span>` : `<span style="color:var(--red)">-${res.bet} coin</span>`} · Bakiye: ${res.balance}`;
+    loadGame();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function claimDaily() {
+  try {
+    const res = await api('/api/play/daily', { method: 'POST' });
+    if (res.ok) {
+      toast(`🎁 +${res.amount} coin aldın!`, 'ok');
+      loadGame();
+    } else {
+      const h = Math.floor(res.remaining / 3600000);
+      const m = Math.floor((res.remaining % 3600000) / 60000);
+      toast(`Günlük ödül için ${h}s ${m}dk bekle`, 'warn');
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+/* ============================ AYARLAR ============================ */
+async function loadSettings() {
+  try {
+    const d = await api('/api/settings');
+    const opts = (list, selected) => [
+      el('option', { value: '', text: '— kapalı —' }),
+      ...list.map((c) => el('option', { value: c.id, text: c.name, selected: c.id === selected ? '' : null }))
+    ];
+    const setSel = (id, list, val) => {
+      const node = $(id);
+      node.innerHTML = '';
+      opts(list, val).forEach((o) => node.append(o));
+      node.value = val || '';
+    };
+    setSel('#setLogChannel', d.textChannels, d.settings.logChannelId);
+    setSel('#setWelcomeChannel', d.textChannels, d.settings.welcomeChannelId);
+    setSel('#setAutoRole', d.roles, d.settings.autoRoleId);
+    $('#setWelcomeMsg').value = d.settings.welcomeMessage || '';
+    $('#setPrefix').value = d.settings.prefix || '!';
+    loadDashboard();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function saveSettings() {
+  try {
+    const body = {
+      logChannelId: $('#setLogChannel').value || null,
+      welcomeChannelId: $('#setWelcomeChannel').value || null,
+      welcomeMessage: $('#setWelcomeMsg').value,
+      autoRoleId: $('#setAutoRole').value || null,
+      prefix: $('#setPrefix').value || '!'
+    };
+    const r = await api('/api/settings', { method: 'POST', body });
+    if (r.ok) toast('Ayarlar kaydedildi', 'ok');
+    else toast(r.error, 'err');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function copyInvite() {
+  try {
+    const { url } = await api('/api/bot/invite');
+    await navigator.clipboard.writeText(url);
+    toast('Davet linki kopyalandı — tarayıcıya yapıştır', 'ok');
+  } catch {
+    toast('Kopyalanamadı', 'err');
+  }
+}
+
+/* ============================ KAYITLAR ============================ */
+const LOG_ICONS = { ban: '🔨', unban: '🔓', kick: '👢', mute: '🔇', unmute: '🔊', warn: '⚠️', channel: '📁', role: '🎭', site: '🖥️', bot: '🤖' };
+
+function renderLogs(box, logs) {
+  box.innerHTML = '';
+  if (!logs || !logs.length) {
+    box.innerHTML = '<div class="empty">Henüz kayıt yok.</div>';
+    return;
+  }
+  for (const l of logs) {
+    box.append(
+      el('div', { class: 'log-row' }, [
+        el('span', { class: 'ic', text: LOG_ICONS[l.type] || '•' }),
+        el('span', { class: 'txt', text: l.text }),
+        el('span', { class: 'time', text: timeAgo(l.at) })
+      ])
+    );
+  }
+}
+
+async function loadLogs() {
+  try {
+    const d = await api('/api/logs');
+    renderLogs($('#logList'), d.logs);
+  } catch (err) {
+    $('#logList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+/* ============================ BAŞLAT ============================ */
+boot();

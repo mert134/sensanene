@@ -1,0 +1,25 @@
+# Render Blueprint — tek "Web Service" olarak çalışır (bot + panel aynı süreçte).
+# Not: Render'da Environment değişkenlerini panelden de girebilirsin.
+services:
+  - type: web
+    name: discord-bot-panel
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: CLIENT_SECRET
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /opt/render/project/src/data

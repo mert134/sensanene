@@ -1,11 +1,294 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <title>Discord Bot Paneli</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bot Paneli · Discord Yönetim</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>" />
 </head>
 <body>
+
+<!-- ============ GİRİŞ ============ -->
+<div id="login">
+  <div class="login-card">
+    <div class="login-logo">🎛️</div>
     <h1>Bot Kontrol Paneli</h1>
-    <p>Web sitesi ve bot başarıyla bağlandı!</p>
+    <p>Discord sunucunu tarayıcıdan yönet: ban, kick, mute, kanal düzenleme ve oyunlar tek panelde.</p>
+    <div id="loginWarn"></div>
+    <a href="/auth/login" class="btn-discord">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.3.5c1.7.4 3.1 1 4.4 1.8a17 17 0 0 0-15 0C5.8 4.5 7.3 3.9 9 3.5L8.6 3a19.8 19.8 0 0 0-4.9 1.4C1.1 8.3.4 12 .8 15.7a19.9 19.9 0 0 0 6 3c.5-.6.9-1.3 1.3-2a13 13 0 0 1-2-1l.5-.4a14.2 14.2 0 0 0 12.2 0l.5.4c-.7.4-1.4.7-2.1 1 .4.7.8 1.4 1.3 2a19.8 19.8 0 0 0 6-3c.5-4.3-.6-8-2.2-11.3ZM8.4 13.4c-1.1 0-2-1-2-2.3s.9-2.3 2-2.3 2 1 2 2.3-.9 2.3-2 2.3Zm7.2 0c-1.1 0-2-1-2-2.3s.9-2.3 2-2.3 2 1 2 2.3-.9 2.3-2 2.3Z"/></svg>
+      Discord ile Giriş Yap
+    </a>
+    <div class="login-note">
+      Giriş yaptığında <b>yalnızca senin Discord yetkilerin</b> geçerli olur.<br />
+      Yöneticisi olmadığın sunucularda işlem yapamazsın.
+    </div>
+  </div>
+</div>
+
+<!-- ============ UYGULAMA ============ -->
+<div id="app">
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">🎛️</div>
+        <div class="brand-text"><b>Bot Paneli</b><span>discord kontrol</span></div>
+      </div>
+
+      <button class="guild-chip" id="guildChip" onclick="openGuildPicker()">
+        <img id="guildIcon" style="display:none" alt="" />
+        <div class="fallback" id="guildFallback">?</div>
+        <div class="name" id="guildName">Sunucu seç</div>
+        <span class="chev">▼</span>
+      </button>
+
+      <button class="nav-item active" data-section="dashboard"><span class="ico">📊</span> Genel Bakış</button>
+      <button class="nav-item" data-section="members"><span class="ico">👥</span> Üyeler & Moderasyon</button>
+      <button class="nav-item" data-section="channels"><span class="ico">📁</span> Kanallar</button>
+      <button class="nav-item" data-section="roles"><span class="ico">🎭</span> Roller</button>
+      <button class="nav-item" data-section="games"><span class="ico">🎰</span> Oyunlar</button>
+      <button class="nav-item" data-section="settings"><span class="ico">⚙️</span> Ayarlar</button>
+      <button class="nav-item" data-section="logs"><span class="ico">📜</span> Kayıtlar</button>
+
+      <div class="nav-spacer"></div>
+      <div class="bot-status" id="botStatus">Bot durumu yükleniyor…</div>
+      <button class="nav-item" onclick="logout()"><span class="ico">🚪</span> Çıkış</button>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h2 id="pageTitle">Genel Bakış</h2>
+          <div class="sub" id="pageSub">Sunucu durumu ve bot bilgileri</div>
+        </div>
+        <div class="right">
+          <span class="pill" id="userPill">—</span>
+          <img class="avatar-sm" id="userAvatar" alt="" />
+        </div>
+      </div>
+
+      <!-- ---------- DASHBOARD ---------- -->
+      <section class="section active" id="sec-dashboard">
+        <div class="grid cols-4" style="margin-bottom:16px">
+          <div class="card stat stat-accent"><div class="label">Üye</div><div class="value" id="stMembers">—</div><div class="hint" id="stBots">—</div></div>
+          <div class="card stat"><div class="label">Kanal</div><div class="value" id="stChannels">—</div><div class="hint" id="stChannelHint">—</div></div>
+          <div class="card stat"><div class="label">Yasaklı</div><div class="value" id="stBans">—</div><div class="hint">ban listesi</div></div>
+          <div class="card stat"><div class="label">Bot Gecikme</div><div class="value" id="stPing">—</div><div class="hint" id="stUptime">—</div></div>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>🤖 Bot Durumu</h3>
+            <div id="botInfo" style="font-size:13px;line-height:2">Yükleniyor…</div>
+          </div>
+          <div class="card">
+            <h3>👤 Senin Yetkilerin</h3>
+            <div id="myPerms" style="font-size:13px;line-height:1.9">Yükleniyor…</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3>📜 Son İşlemler <span class="badge" id="logCount">0</span></h3>
+          <div id="recentLogs"><div class="empty">Kayıt yok.</div></div>
+        </div>
+      </section>
+
+      <!-- ---------- MEMBERS ---------- -->
+      <section class="section" id="sec-members">
+        <div class="toolbar">
+          <input class="input search" id="memberSearch" placeholder="🔍 İsim veya ID ile ara…" oninput="renderMembers()" />
+          <select class="input" id="memberFilter" onchange="renderMembers()" style="max-width:180px">
+            <option value="all">Tüm üyeler</option>
+            <option value="muted">Susturulmuş</option>
+            <option value="warned">Uyarısı olan</option>
+            <option value="bots">Botlar</option>
+          </select>
+          <button class="btn" onclick="loadMembers()">↻ Yenile</button>
+        </div>
+        <div class="hint" style="margin-bottom:12px">Bir üyeye tıkla → ban / kick / mute / uyarı işlemlerini seç. Yetkin yetmediği işlemler otomatik reddedilir.</div>
+        <div class="member-grid" id="memberGrid"></div>
+      </section>
+
+      <!-- ---------- CHANNELS ---------- -->
+      <section class="section" id="sec-channels">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="openChannelCreate()">+ Kanal Oluştur</button>
+          <button class="btn" onclick="loadChannels()">↻ Yenile</button>
+        </div>
+
+        <div class="card">
+          <h3>📁 Kanallar</h3>
+          <div id="channelList"><div class="empty">Yükleniyor…</div></div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3>🚫 Yasaklı Üyeler <span class="badge" id="banCount">0</span></h3>
+          <div class="row" style="margin-bottom:10px">
+            <input class="input" id="unbanInput" placeholder="Yasağı kaldırılacak kullanıcı ID" />
+            <button class="btn btn-ok" style="flex:0 0 auto" onclick="quickUnban()">Yasağı Kaldır</button>
+          </div>
+          <div id="banList"><div class="empty">Yükleniyor…</div></div>
+        </div>
+      </section>
+
+      <!-- ---------- ROLES ---------- -->
+      <section class="section" id="sec-roles">
+        <div class="toolbar">
+          <input class="input" id="newRoleName" placeholder="Yeni rol adı" style="max-width:220px" />
+          <input type="color" class="input" id="newRoleColor" value="#5865f2" style="max-width:60px;padding:4px;height:40px" />
+          <button class="btn btn-primary" onclick="createRole()">+ Rol Oluştur</button>
+          <button class="btn" onclick="loadRoles()">↻ Yenile</button>
+        </div>
+        <div class="card">
+          <div id="roleList"><div class="empty">Yükleniyor…</div></div>
+        </div>
+      </section>
+
+      <!-- ---------- GAMES ---------- -->
+      <section class="section" id="sec-games">
+        <div class="grid cols-2">
+          <div>
+            <div class="slot-machine">
+              <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap">
+                <span class="coin-badge">💰 <span id="slotBalance">0</span> coin</span>
+                <span class="pill">En az 10 coin</span>
+              </div>
+              <div class="reels">
+                <div class="reel" id="reel0">🍒</div>
+                <div class="reel" id="reel1">🍋</div>
+                <div class="reel" id="reel2">🍇</div>
+              </div>
+              <div class="slot-msg" id="slotMsg">Bahsini seç ve çevir!</div>
+              <div class="row" style="margin:16px 0 12px">
+                <input class="input" id="slotBet" type="number" value="50" min="10" style="text-align:center" />
+              </div>
+              <div class="chip-row" style="justify-content:center;margin-bottom:14px">
+                <button class="chip" onclick="setBet(10)">10</button>
+                <button class="chip" onclick="setBet(50)">50</button>
+                <button class="chip" onclick="setBet(100)">100</button>
+                <button class="chip" onclick="setBet('yarı')">Yarısı</button>
+                <button class="chip" onclick="setBet('hepsi')">Hepsi</button>
+              </div>
+              <button class="btn btn-primary btn-block" id="spinBtn" onclick="playSlot()" style="padding:14px;font-size:15px">🎰 ÇEVİR</button>
+            </div>
+
+            <div class="card" style="margin-top:16px">
+              <h3>🪙 Diğer Oyunlar</h3>
+              <div class="row" style="margin-bottom:10px">
+                <input class="input" id="othBet" type="number" value="50" min="10" placeholder="Bahis" />
+              </div>
+              <div class="row">
+                <button class="btn" onclick="playCoinflip('yazı')">🪙 Yazı</button>
+                <button class="btn" onclick="playCoinflip('tura')">🪙 Tura</button>
+              </div>
+              <div class="row" style="margin-top:10px">
+                <select class="input" id="diceGuess">
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                </select>
+                <button class="btn" onclick="playDice()">🎲 Zar At (x6)</button>
+              </div>
+              <div id="othMsg" class="hint" style="margin-top:12px"></div>
+              <button class="btn btn-ok btn-block" style="margin-top:12px" onclick="claimDaily()">🎁 Günlük Ödül Al</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="card">
+              <h3>🏆 Sunucu Sıralaması</h3>
+              <div id="leaderboard"><div class="empty">Yükleniyor…</div></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <h3>📈 İstatistiğin</h3>
+              <div id="myStats" style="font-size:13px;line-height:2"></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <h3>💬 Discord Komutları</h3>
+              <div style="font-size:12.5px;line-height:2;color:var(--muted)">
+                <span class="mono">!slot 100</span> · <span class="mono">!yazıtura 50 yazı</span><br />
+                <span class="mono">!zar 4 50</span> · <span class="mono">!günlük</span><br />
+                <span class="mono">!bakiye</span> · <span class="mono">!sıralama</span><br />
+                <span class="mono">!şans @üye</span> · <span class="mono">!8ball soru</span><br />
+                <span class="mono">!espri</span> · <span class="mono">!yardım</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- SETTINGS ---------- -->
+      <section class="section" id="sec-settings">
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>⚙️ Sunucu Ayarları</h3>
+            <div class="field">
+              <label class="f">Kayıt (log) kanalı</label>
+              <select class="input" id="setLogChannel"><option value="">— kapalı —</option></select>
+              <div class="hint">Moderasyon ve panel işlemleri bu kanala yazılır.</div>
+            </div>
+            <div class="field">
+              <label class="f">Hoş geldin kanalı</label>
+              <select class="input" id="setWelcomeChannel"><option value="">— kapalı —</option></select>
+            </div>
+            <div class="field">
+              <label class="f">Hoş geldin mesajı</label>
+              <textarea class="input" id="setWelcomeMsg" placeholder="Sunucumuza hoş geldin {user}!"></textarea>
+              <div class="hint">Değişkenler: <code>{user}</code> etiket, <code>{name}</code> kullanıcı adı, <code>{guild}</code> sunucu adı.</div>
+            </div>
+            <div class="field">
+              <label class="f">Otomatik rol (yeni üyeye)</label>
+              <select class="input" id="setAutoRole"><option value="">— kapalı —</option></select>
+            </div>
+            <div class="field">
+              <label class="f">Komut ön eki</label>
+              <input class="input" id="setPrefix" maxlength="3" placeholder="!" />
+            </div>
+            <button class="btn btn-primary btn-block" onclick="saveSettings()">💾 Kaydet</button>
+          </div>
+
+          <div class="card">
+            <h3>🤖 Bot Bilgileri</h3>
+            <div id="botDetails" style="font-size:13px;line-height:2"></div>
+            <div style="margin-top:14px">
+              <button class="btn btn-block" onclick="copyInvite()">🔗 Bot Davet Linkini Kopyala</button>
+            </div>
+            <h3 style="margin-top:22px">📖 Komut Listesi</h3>
+            <div style="font-size:12.5px;line-height:2;color:var(--muted)">
+              <b style="color:var(--text)">Moderasyon</b><br />
+              <span class="mono">!ban @üye sebep</span> · <span class="mono">!unban ID</span><br />
+              <span class="mono">!kick @üye</span> · <span class="mono">!mute @üye 10m</span><br />
+              <span class="mono">!unmute @üye</span> · <span class="mono">!warn @üye</span><br />
+              <span class="mono">!uyarılar @üye</span> · <span class="mono">!temizle 50</span><br /><br />
+              <b style="color:var(--text)">Kanal / Rol</b><br />
+              <span class="mono">!kanal-oluştur isim ses</span> · <span class="mono">!kanal-ad yeni</span><br />
+              <span class="mono">!kanal-sil</span> · <span class="mono">!rol-ver @üye @rol</span><br />
+              <span class="mono">!rol-al @üye @rol</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- LOGS ---------- -->
+      <section class="section" id="sec-logs">
+        <div class="toolbar">
+          <button class="btn" onclick="loadLogs()">↻ Yenile</button>
+        </div>
+        <div class="card"><div id="logList"><div class="empty">Yükleniyor…</div></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ============ MOBİL NAV ============ -->
+
+<!-- ============ MODAL ============ -->
+<div class="modal-backdrop" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modalBody"></div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/app.js"></script>
 </body>
 </html>
