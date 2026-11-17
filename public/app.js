@@ -1054,9 +1054,9 @@ function editChannel(ch) {
         el('span', { class: `lock-status ${ch.locked ? 'locked' : ''}`, text: ch.locked ? 'Yazmaya kapalı' : 'Yazmaya açık' })
       ]),
       el('textarea', { class: 'input', id: 'channelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' }),
-      el('label', { class: 'f', text: 'Kaç kez gönderilsin? (1–100)' }),
-      el('input', { class: 'input', id: 'channelMessageCount', type: 'number', min: '1', max: '100', step: '1', value: '1' }),
-      el('div', { class: 'hint', text: 'Tekrarlanan gönderimlerde etiket bildirimi her kanalda yalnızca ilk mesajda gider.' }),
+      el('label', { class: 'f', text: 'Kaç kez gönderilsin?' }),
+      el('input', { class: 'input', id: 'channelMessageCount', type: 'number', min: '1', step: '1', value: '1' }),
+      el('div', { class: 'hint', text: 'Etiket ayarları her tekrara uygulanır. Discord gönderim hız sınırları geçerlidir; gönderimi durdurabilirsin.' }),
       el('div', { class: 'anonymous-option' }, [
         el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAnonymous', checked: true }), el('span', { text: 'Anonymous' })]),
         el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur; panel kullanıcısının adı görünmez.' })
@@ -1083,6 +1083,9 @@ function editChannel(ch) {
 async function sendMessageBatch(channels, content, repeatCount, options, onProgress) {
   if (stopActiveMessageBatch) throw new Error('Önceki gönderimin durması bekleniyor.');
   const total = channels.length * repeatCount;
+  if (!channels.length || !Number.isSafeInteger(repeatCount) || repeatCount < 1 || !Number.isSafeInteger(total)) {
+    throw new Error('Pozitif ve güvenli bir tam sayı gir.');
+  }
   let sent = 0;
   let attempted = 0;
   const failures = [];
@@ -1096,14 +1099,13 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
         if (stopRequested) break outer;
         attempted += 1;
         try {
-          const firstInChannel = repeat === 0;
           const result = await api('/api/channels/message', {
             method: 'POST',
             body: {
               channelId: channel.id,
               content,
-              allowMentions: firstInChannel && options.allowMentions,
-              allowEveryone: firstInChannel && options.allowEveryone,
+              allowMentions: options.allowMentions,
+              allowEveryone: options.allowEveryone,
               anonymous: options.anonymous
             }
           });
@@ -1141,8 +1143,8 @@ async function sendChannelMessage(ch) {
   const content = (input?.value || '').trim();
   if (!content) return toast('Gönderilecek mesajı yaz', 'warn');
   const repeatCount = Number($('#channelMessageCount')?.value || 1);
-  if (!Number.isInteger(repeatCount) || repeatCount < 1 || repeatCount > 100) {
-    return toast('Gönderim sayısı 1 ile 100 arasında olmalı.', 'warn');
+  if (!Number.isSafeInteger(repeatCount) || repeatCount < 1) {
+    return toast('Gönderim sayısı pozitif bir tam sayı olmalı.', 'warn');
   }
 
   const sendButton = $('#channelMessageSend');
@@ -1182,11 +1184,9 @@ async function sendChannelMessage(ch) {
 function openBulkChannelMessage() {
   const channels = state.channels.filter((ch) => state.selectedChannels.has(ch.id) && ['text', 'announcement'].includes(ch.type));
   if (!channels.length) return toast('Toplu mesaj için metin veya duyuru kanalı seç.', 'warn');
-  if (channels.length > 100) return toast('Toplu gönderimde en fazla 100 metin/duyuru kanalı seçebilirsin.', 'warn');
 
-  const maxRepeat = Math.floor(100 / channels.length);
   const messageInput = el('textarea', { class: 'input', id: 'bulkChannelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' });
-  const countInput = el('input', { class: 'input', id: 'bulkChannelMessageCount', type: 'number', min: '1', max: String(maxRepeat), step: '1', value: '1' });
+  const countInput = el('input', { class: 'input', id: 'bulkChannelMessageCount', type: 'number', min: '1', step: '1', value: '1' });
   const anonymousInput = el('input', { type: 'checkbox', id: 'bulkChannelAnonymous', checked: true });
   const mentionInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowMentions', checked: true });
   const everyoneInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowEveryone', checked: true });
@@ -1198,8 +1198,9 @@ function openBulkChannelMessage() {
     const content = messageInput.value.trim();
     if (!content) return toast('Gönderilecek mesajı yaz.', 'warn');
     const repeatCount = Number(countInput.value);
-    if (!Number.isInteger(repeatCount) || repeatCount < 1 || repeatCount > maxRepeat) {
-      return toast(`Bu seçimde kanal başına 1–${maxRepeat} tekrar olabilir (toplam en fazla 100 mesaj).`, 'warn');
+    const total = channels.length * repeatCount;
+    if (!Number.isSafeInteger(repeatCount) || repeatCount < 1 || !Number.isSafeInteger(total)) {
+      return toast('Kanal başına pozitif ve güvenli bir tam sayı gir.', 'warn');
     }
 
     stopButton.onclick = () => {
@@ -1240,9 +1241,9 @@ function openBulkChannelMessage() {
     ]),
     el('label', { class: 'f', text: 'Mesaj' }),
     messageInput,
-    el('label', { class: 'f', text: `Her kanala kaç kez? (1–${maxRepeat})` }),
+    el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Bu gönderimde toplam en fazla 100 mesaj olacak. Etiket bildirimi her kanalda yalnızca ilk mesaja eklenir.` }),
+    el('div', { class: 'hint', text: `Aynı mesaj ${channels.length} seçili kanala, belirttiğin sayı kadar gönderilir. Etiket ayarları her tekrara uygulanır; Discord hız sınırları geçerlidir.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
