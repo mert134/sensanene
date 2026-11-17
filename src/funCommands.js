@@ -336,6 +336,41 @@ const METER_GIFS = {
   sadakat: 'handhold', komiklik: 'laugh', enerji: 'dance', coolluk: 'cool', güvenilirlik: 'hug'
 };
 
+const METER_SCANNERS = {
+  aşk: ['Kalp ritimleri karşılaştırıldı', 'Romantik frekanslar eşleştirildi', 'Kelebek sensörleri çalıştırıldı'],
+  çekicilik: ['Aura parlaklığı tarandı', 'Bakış yakalama oranı hesaplandı', 'Stil sensörleri kalibre edildi'],
+  karizma: ['Ortam hâkimiyeti ölçüldü', 'Karizma dalgaları tarandı', 'Liderlik aurası analiz edildi'],
+  azgınlık: ['Ateş seviyesi ölçüldü', 'Ortam sıcaklığı kontrol edildi', 'Baharat sensörü çalıştırıldı'],
+  delilik: ['Mantık filtresi test edildi', 'Çılgınlık sinyalleri yakalandı', 'Kaos radarı çalıştırıldı'],
+  masumluk: ['Melek kanatları tarandı', 'Masumiyet filtresi uygulandı', 'Şüphe seviyesi kontrol edildi'],
+  kıskançlık: ['Dedektif modu incelendi', 'Yan bakışlar analiz edildi', 'Takip radarı tarandı'],
+  toksiklik: ['Zehir sensörü çalıştırıldı', 'Sohbet geçmişi simüle edildi', 'Tehlike seviyesi ölçüldü'],
+  yakışıklılık: ['Podyum sensörleri açıldı', 'Kamera uyumu hesaplandı', 'Stil katsayısı ölçüldü'],
+  güzellik: ['Işık ve aura tarandı', 'Kamera sensörü kalibre edildi', 'Parlaklık seviyesi ölçüldü'],
+  zenginlik: ['Gelecek kasası tarandı', 'Yatırım aurası ölçüldü', 'Para mıknatısı test edildi'],
+  şanslılık: ['Kader zarları atıldı', 'Dört yapraklı yonca tarandı', 'Şans frekansı ölçüldü'],
+  oyunculuk: ['Refleksler simüle edildi', 'E-spor sensörü çalıştırıldı', 'Klavye gücü hesaplandı'],
+  zekâ: ['Beyin işlemcisi test edildi', 'Nöron hızı ölçüldü', 'Problem çözme motoru çalıştı'],
+  tembellik: ['Yatak çekim gücü ölçüldü', 'Enerji tasarrufu tarandı', 'Mola ihtiyacı hesaplandı'],
+  sadakat: ['Dostluk bağı tarandı', 'Güven zinciri test edildi', 'Yol arkadaşlığı analiz edildi'],
+  komiklik: ['Mizah motoru çalıştırıldı', 'Kahkaha frekansı ölçüldü', 'Espri zamanlaması analiz edildi'],
+  enerji: ['Pil seviyesi tarandı', 'Hareket sensörü çalıştırıldı', 'Tempo gücü ölçüldü'],
+  coolluk: ['Buz seviyesi ölçüldü', 'Havalılık radarı çalıştı', 'Stil sıcaklığı tarandı'],
+  güvenilirlik: ['Güven protokolü çalıştırıldı', 'Sözünde durma oranı ölçüldü', 'Dostluk kalkanı test edildi']
+};
+const SCAN_DETAILS = ['Veriler Lores çekirdeğinde işlendi.', 'Anime sensörleri sonucu doğruladı.', 'Aura dalgaları başarıyla çözümlendi.', 'Sonuç üç farklı algoritmayla karşılaştırıldı.', 'Tarama sinyali kusursuz şekilde alındı.', 'Gizli istatistikler başarıyla ortaya çıkarıldı.'];
+function meterTier(score) {
+  if (score >= 90) return '💎 Efsanevi';
+  if (score >= 75) return '🔥 Çok yüksek';
+  if (score >= 55) return '✨ Yüksek';
+  if (score >= 35) return '⚡ Orta';
+  if (score >= 15) return '🌙 Düşük';
+  return '🧊 Çok düşük';
+}
+function scanText(name) {
+  return `${randomOf(METER_SCANNERS[name] || ['Özel sensörler çalıştırıldı'])}. ${randomOf(SCAN_DETAILS)}`;
+}
+
 async function runMeter(interaction, name, info) {
   const one = interaction.options.getUser('kişi1');
   const two = name === 'aşk' ? (interaction.options.getUser('kişi2') || interaction.user) : null;
@@ -347,7 +382,12 @@ async function runMeter(interaction, name, info) {
   const gif = await getGif(METER_GIFS[name] || 'happy');
   const embed = baseEmbed(interaction, score >= 75 ? COLORS.pink : score >= 35 ? COLORS.purple : COLORS.blue)
     .setTitle(`${info.emoji} ${info.title}: %${score}`)
-    .setDescription(`${who}\n\n### ${bar(score)}  **%${score}**\n\n*${comment}*`)
+    .setDescription(`> ${scanText(name)}\n\n### ${bar(score)}  **%${score}**\n\n**${meterTier(score)}** — *${comment}*`)
+    .addFields(
+      { name: '🎯 Analiz Edilen', value: who, inline: true },
+      { name: '📡 Tarama', value: `${info.emoji} ${info.title} sensörü`, inline: true },
+      { name: '🏅 Sonuç', value: meterTier(score), inline: true }
+    )
     .setThumbnail(one.displayAvatarURL({ size: 256 }))
     .setImage(gif);
   return interaction.editReply({ embeds: [embed] });
