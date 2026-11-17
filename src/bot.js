@@ -424,20 +424,12 @@ cmd(['espri', 'joke'], 'Rastgele espri', '/espri', async (ctx) => {
   await ctx.message.reply({ embeds: [resultEmbed({ title: '😄 Lores Mizah Servisi', description: jokes[Math.floor(Math.random() * jokes.length)], color: 0xeb459e, thumbnail: ctx.client.user.displayAvatarURL() })] });
 });
 
-// --- Panel
-cmd(['panel'], 'Web paneli linki', '/panel', async (ctx) => {
-  const url = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
-  await ctx.message.reply({
-    embeds: [resultEmbed({ title: '🖥️ Yönetim Paneli', description: url ? `Panel: ${url}` : 'Panel adresi tanımlı değil. `PUBLIC_URL` ortam değişkenini ekle.', color: COLOR.main })]
-  });
-});
 
 // ------------------------------------------------------------------ SLASH KOMUTLARI
 // Sunucu bazlı kayıt anında görünür; global komutlarda görülebilen 1 saate varan bekleme yoktur.
 const slashCommands = [
   new SlashCommandBuilder().setName('yardım').setDescription('Lores Bot komut merkezini gösterir'),
   new SlashCommandBuilder().setName('ping').setDescription('Bot ve Discord gecikmesini gösterir'),
-  new SlashCommandBuilder().setName('panel').setDescription('Güvenli web kontrol panelini gösterir'),
   new SlashCommandBuilder().setName('ban').setDescription('Bir üyeyi sunucudan yasaklar')
     .addUserOption(o => o.setName('üye').setDescription('Yasaklanacak üye').setRequired(true))
     .addStringOption(o => o.setName('sebep').setDescription('İşlem sebebi').setMaxLength(300)),
