@@ -48,6 +48,14 @@ async function sendAnonymousMessage(channel, payload) {
     return hook.send(payload);
   }
 }
+
+function escapeDisabledBroadcastMentions(content, allowEveryone, allowHere) {
+  let safeContent = content;
+  if (!allowEveryone) safeContent = safeContent.replace(/@everyone\b/gi, '@\u200beveryone');
+  if (!allowHere) safeContent = safeContent.replace(/@here\b/gi, '@\u200bhere');
+  return safeContent;
+}
+
 const CLIENT_ID = (process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '').trim();
 const ADMIN_USER = (process.env.ADMIN_USER || process.env.PANEL_USER || '').trim();
 const ADMIN_PASS = (process.env.ADMIN_PASS || process.env.PANEL_PASS || '').trim();
@@ -627,7 +635,7 @@ app.post('/api/channels/bulk/create', requireAuth, wrap(async (req, res) => {
   const guild = getGuild(req.session.guildId);
   const actor = await actorOf(req, guild);
   const { names, type, categoryId } = req.body || {};
-  const cleanNames = [...new Set(Array.isArray(names) ? names.map((n) => String(n).trim()).filter(Boolean) : [])].slice(0, 50);
+  const cleanNames = Array.isArray(names) ? names.map((n) => String(n).trim()).filter(Boolean) : [];
   if (!cleanNames.length) throw new Error('Oluşturulacak kanal adlarını gir.');
   const results = [];
   for (const name of cleanNames) results.push({ name, ...(await mod.createChannel(guild, actor, { name, type, categoryId })) });
@@ -666,20 +674,23 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
   if (!botPerms?.has(PermissionsBitField.Flags.SendMessages)) throw new Error('Botun bu kanalda mesaj gönderme yetkisi yok.');
   const allowMentions = Boolean(req.body.allowMentions);
   const allowEveryone = Boolean(req.body.allowEveryone);
-  if (allowEveryone && /@(everyone|here)\b/i.test(content) && !botPerms.has(PermissionsBitField.Flags.MentionEveryone)) {
-    throw new Error('Botun `@everyone`, `@here` veya tüm rolleri etiketleme yetkisi yok.');
+  const allowHere = req.body.allowHere === undefined ? allowEveryone : Boolean(req.body.allowHere);
+  const hasAllowedGroupMention = (allowEveryone && /@everyone\b/i.test(content)) || (allowHere && /@here\b/i.test(content));
+  if (hasAllowedGroupMention && !botPerms.has(PermissionsBitField.Flags.MentionEveryone)) {
+    throw new Error('Botun `@everyone` / `@here` etiketleme yetkisi yok.');
   }
+  const outgoingContent = escapeDisabledBroadcastMentions(content, allowEveryone, allowHere);
   const parse = [];
   if (allowMentions) parse.push('users', 'roles');
-  if (allowEveryone) parse.push('everyone');
+  if (allowEveryone || allowHere) parse.push('everyone');
   let sent;
   if (req.body.anonymous) {
     if (!botPerms.has(PermissionsBitField.Flags.ManageWebhooks)) {
       throw new Error('Anonim mesaj için botun bu kanalda `Webhookları Yönet` yetkisi olmalı.');
     }
-    sent = await sendAnonymousMessage(channel, { content, username: 'Anonymous', allowedMentions: { parse } });
+    sent = await sendAnonymousMessage(channel, { content: outgoingContent, username: 'Anonymous', allowedMentions: { parse } });
   } else {
-    sent = await channel.send({ content, allowedMentions: { parse } });
+    sent = await channel.send({ content: outgoingContent, allowedMentions: { parse } });
   }
   settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalına panelden ${req.body.anonymous ? 'anonim ' : ''}mesaj gönderdi`);
   res.json({ ok: true, anonymous: Boolean(req.body.anonymous), message: req.body.anonymous ? 'Anonim mesaj gönderildi.' : 'Mesaj gönderildi.', messageId: sent.id });

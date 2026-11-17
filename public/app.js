@@ -17,6 +17,7 @@ const state = {
 };
 
 let stopActiveMessageBatch = null;
+let stopActiveChannelCreation = null;
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, props = {}, children = []) => {
@@ -344,6 +345,7 @@ function openModal(children) {
 }
 function closeModal() {
   stopActiveMessageBatch?.();
+  stopActiveChannelCreation?.();
   $('#modal').classList.remove('open');
 }
 
@@ -1063,7 +1065,8 @@ function editChannel(ch) {
       ]),
       el('div', { class: 'mention-options' }, [
         el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions', checked: true }), el('span', { text: 'Kullanıcı ve rol etiketlerini etkinleştir' })]),
-        el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowEveryone', checked: true }), el('span', { text: '@everyone ve @here etiketlerini etkinleştir' })])
+        el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowEveryone', checked: true }), el('span', { text: '@everyone etiketini etkinleştir' })]),
+        el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowHere', checked: true }), el('span', { text: '@here etiketini etkinleştir' })])
       ]),
       el('div', { class: 'hint', id: 'channelMessageProgress', style: 'min-height:18px;margin:6px 0' }),
       el('div', { class: 'row' }, [
@@ -1106,6 +1109,7 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
               content,
               allowMentions: options.allowMentions,
               allowEveryone: options.allowEveryone,
+              allowHere: options.allowHere,
               anonymous: options.anonymous
             }
           });
@@ -1163,6 +1167,7 @@ async function sendChannelMessage(ch) {
     const result = await sendMessageBatch([ch], content, repeatCount, {
       allowMentions: Boolean($('#channelAllowMentions')?.checked),
       allowEveryone: Boolean($('#channelAllowEveryone')?.checked),
+      allowHere: Boolean($('#channelAllowHere')?.checked),
       anonymous: Boolean($('#channelAnonymous')?.checked)
     }, (state) => {
       progress.textContent = `Gönderiliyor: ${state.sent}/${state.total} · #${state.channel.name}`;
@@ -1190,6 +1195,7 @@ function openBulkChannelMessage() {
   const anonymousInput = el('input', { type: 'checkbox', id: 'bulkChannelAnonymous', checked: true });
   const mentionInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowMentions', checked: true });
   const everyoneInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowEveryone', checked: true });
+  const hereInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowHere', checked: true });
   const progress = el('div', { class: 'hint', style: 'min-height:18px;margin:6px 0' });
   const stopButton = el('button', { class: 'btn btn-danger', text: 'Gönderimi durdur', style: 'display:none' });
   const sendButton = el('button', { class: 'btn btn-primary', text: `Toplu gönder (${channels.length} kanal)` });
@@ -1216,6 +1222,7 @@ function openBulkChannelMessage() {
       const result = await sendMessageBatch(channels, content, repeatCount, {
         allowMentions: mentionInput.checked,
         allowEveryone: everyoneInput.checked,
+        allowHere: hereInput.checked,
         anonymous: anonymousInput.checked
       }, (state) => {
         progress.textContent = `Gönderiliyor: ${state.sent}/${state.total} · #${state.channel.name}`;
@@ -1250,7 +1257,8 @@ function openBulkChannelMessage() {
     ]),
     el('div', { class: 'mention-options' }, [
       el('label', { class: 'mention-option' }, [mentionInput, el('span', { text: 'Kullanıcı ve rol etiketleri' })]),
-      el('label', { class: 'mention-option danger' }, [everyoneInput, el('span', { text: '@everyone ve @here etiketleri' })])
+      el('label', { class: 'mention-option danger' }, [everyoneInput, el('span', { text: '@everyone etiketi' })]),
+      el('label', { class: 'mention-option danger' }, [hereInput, el('span', { text: '@here etiketi' })])
     ]),
     progress,
     el('div', { class: 'row', style: 'margin-top:12px' }, [
@@ -1349,19 +1357,94 @@ function openChannelCreate() {
 
 function openBulkChannelCreate() {
   const categories = state.channels.filter((c) => c.type === 'category');
+  const namesInput = el('textarea', { class: 'input', id: 'bulkChannelNames', rows: '9', placeholder: 'genel-sohbet\noyun-odası\nmüzik\nyayıncılar' });
+  const typeInput = el('select', { class: 'input', id: 'bulkChannelType' }, [
+    el('option', { value: 'text', text: 'Metin kanalı' }),
+    el('option', { value: 'voice', text: 'Ses kanalı' }),
+    el('option', { value: 'category', text: 'Kategori' }),
+    el('option', { value: 'announcement', text: 'Duyuru kanalı' })
+  ]);
+  const parentInput = el('select', { class: 'input', id: 'bulkChannelParent' }, [
+    el('option', { value: '', text: 'Kategori yok' }),
+    ...categories.map((c) => el('option', { value: c.id, text: c.name }))
+  ]);
+  const progress = el('div', { class: 'hint', style: 'min-height:18px;margin:8px 0' });
+  const createButton = el('button', { class: 'btn btn-primary', text: 'Kanalları oluştur' });
+  const stopButton = el('button', { class: 'btn btn-danger', text: 'Durdur', style: 'display:none' });
+
+  createButton.addEventListener('click', async () => {
+    const names = namesInput.value.split(/\n|,/).map((name) => name.trim()).filter(Boolean);
+    if (!names.length) return toast('En az bir kanal adı gir.', 'warn');
+    if (stopActiveChannelCreation) return toast('Önceki toplu oluşturma bitene kadar bekle.', 'warn');
+
+    const type = typeInput.value;
+    const categoryId = parentInput.value || null;
+    let stopRequested = false;
+    const stop = () => { stopRequested = true; };
+    stopActiveChannelCreation = stop;
+    let created = 0;
+    let failed = 0;
+    let processed = 0;
+    let firstError = '';
+    createButton.disabled = true;
+    stopButton.disabled = false;
+    stopButton.style.display = 'inline-flex';
+
+    try {
+      const chunkSize = 10;
+      for (let index = 0; index < names.length; index += chunkSize) {
+        if (stopRequested) break;
+        const chunk = names.slice(index, index + chunkSize);
+        try {
+          const result = await api('/api/channels/bulk/create', {
+            method: 'POST',
+            body: { names: chunk, type, categoryId }
+          });
+          created += result.created || 0;
+          failed += result.failed || 0;
+          if (!firstError && result.results?.length) firstError = result.results.find((item) => !item.ok)?.error || '';
+        } catch (err) {
+          failed += chunk.length;
+          if (!firstError) firstError = err.message;
+          break;
+        }
+        processed += chunk.length;
+        progress.textContent = `İşlendi: ${processed}/${names.length} · ${created} oluşturuldu${failed ? ` · ${failed} başarısız` : ''}`;
+      }
+      const stateText = stopRequested ? 'Durduruldu' : 'Tamamlandı';
+      progress.textContent = `${stateText}: ${processed}/${names.length} işlendi · ${created} oluşturuldu${failed ? ` · ${failed} başarısız` : ''}${firstError ? ` · ${firstError}` : ''}`;
+      toast(`${created} kanal oluşturuldu${failed ? `, ${failed} başarısız` : ''}${stopRequested ? ' · işlem durduruldu' : ''}`, failed ? 'warn' : 'ok');
+      if (created) loadChannels();
+    } catch (err) {
+      toast(err.message || 'Toplu kanal oluşturma başarısız.', 'err');
+    } finally {
+      if (stopActiveChannelCreation === stop) stopActiveChannelCreation = null;
+      createButton.disabled = false;
+      stopButton.disabled = false;
+      stopButton.style.display = 'none';
+    }
+  });
+
+  stopButton.addEventListener('click', () => {
+    stopActiveChannelCreation?.();
+    stopButton.disabled = true;
+    progress.textContent = 'Durduruluyor…';
+  });
+
   openModal([
-    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu kanal oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir kanal adı — en fazla 50' })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
-    el('label', { class: 'f', text: 'Kanal adları' }),
-    el('textarea', { class: 'input', id: 'bulkChannelNames', rows: '9', placeholder: 'genel-sohbet\noyun-odası\nmüzik\nyayıncılar' }),
-    el('div', { class: 'row', style: 'margin-top:12px' }, [
-      el('select', { class: 'input', id: 'bulkChannelType' }, [el('option', { value: 'text', text: 'Metin kanalı' }), el('option', { value: 'voice', text: 'Ses kanalı' }), el('option', { value: 'category', text: 'Kategori' }), el('option', { value: 'announcement', text: 'Duyuru kanalı' })]),
-      el('select', { class: 'input', id: 'bulkChannelParent' }, [el('option', { value: '', text: 'Kategori yok' }), ...categories.map((c) => el('option', { value: c.id, text: c.name }))])
+    el('div', { class: 'modal-head' }, [
+      el('div', {}, [el('h3', { text: 'Toplu kanal oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir kanal adı; aynı ad birden fazla kez kullanılabilir. Discord sunucu sınırları geçerlidir.' })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
     ]),
-    el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:16px', text: 'Kanalları oluştur', onclick: async () => {
-      const names = $('#bulkChannelNames').value.split(/\n|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50);
-      if (!names.length) return toast('En az bir kanal adı gir', 'warn');
-      try { const r = await api('/api/channels/bulk/create', { method: 'POST', body: { names, type: $('#bulkChannelType').value, categoryId: $('#bulkChannelParent').value || null } }); toast(`${r.created} kanal oluşturuldu${r.failed ? `, ${r.failed} başarısız` : ''}`, r.failed ? 'warn' : 'ok'); closeModal(); loadChannels(); } catch (e) { toast(e.message, 'err'); }
-    } })
+    el('label', { class: 'f', text: 'Kanal adları' }),
+    namesInput,
+    el('div', { class: 'row', style: 'margin-top:12px' }, [typeInput, parentInput]),
+    progress,
+    el('div', { class: 'row', style: 'margin-top:12px' }, [
+      el('button', { class: 'btn', text: 'Vazgeç', onclick: closeModal }),
+      stopButton,
+      createButton
+    ])
   ]);
 }
 
