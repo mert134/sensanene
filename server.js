@@ -643,9 +643,22 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
   const parse = [];
   if (allowMentions) parse.push('users', 'roles');
   if (allowEveryone) parse.push('everyone');
-  const sent = await channel.send({ content, allowedMentions: { parse } });
-  settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalına panelden mesaj gönderdi`);
-  res.json({ ok: true, message: 'Mesaj gönderildi.', messageId: sent.id });
+  let sent;
+  if (req.body.anonymous) {
+    if (!botPerms.has(PermissionsBitField.Flags.ManageWebhooks)) {
+      throw new Error('Anonim mesaj için botun bu kanalda `Webhookları Yönet` yetkisi olmalı.');
+    }
+    const hooks = await channel.fetchWebhooks();
+    let hook = hooks.find((w) => w.owner?.id === botState.client.user.id && w.name === 'LORES Anonymous');
+    if (!hook) {
+      hook = await channel.createWebhook({ name: 'LORES Anonymous', reason: `${actor.user.username}: anonim panel mesajı` });
+    }
+    sent = await hook.send({ content, username: 'Anonim', allowedMentions: { parse } });
+  } else {
+    sent = await channel.send({ content, allowedMentions: { parse } });
+  }
+  settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalına panelden ${req.body.anonymous ? 'anonim ' : ''}mesaj gönderdi`);
+  res.json({ ok: true, anonymous: Boolean(req.body.anonymous), message: req.body.anonymous ? 'Anonim mesaj gönderildi.' : 'Mesaj gönderildi.', messageId: sent.id });
 }));
 
 app.post('/api/channels/lock', requireAuth, wrap(async (req, res) => {
