@@ -16,6 +16,8 @@ const state = {
   settings: null
 };
 
+let stopActiveMessageBatch = null;
+
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, props = {}, children = []) => {
   const node = document.createElement(tag);
@@ -341,6 +343,7 @@ function openModal(children) {
   $('#modal').classList.add('open');
 }
 function closeModal() {
+  stopActiveMessageBatch?.();
   $('#modal').classList.remove('open');
 }
 
@@ -1047,10 +1050,13 @@ function editChannel(ch) {
   if (ch.type === 'text' || ch.type === 'announcement') {
     body.push(el('div', { class: 'channel-control-box' }, [
       el('div', { class: 'channel-control-head' }, [
-        el('div', {}, [el('b', { text: 'Kanala mesaj gönder' }), el('span', { text: 'Mesaj bot hesabından gönderilir.' })]),
+        el('div', {}, [el('b', { text: 'Kanala mesaj gönder' }), el('span', { text: 'Bot hesabı veya Anonymous webhook üzerinden gönderilir.' })]),
         el('span', { class: `lock-status ${ch.locked ? 'locked' : ''}`, text: ch.locked ? 'Yazmaya kapalı' : 'Yazmaya açık' })
       ]),
       el('textarea', { class: 'input', id: 'channelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' }),
+      el('label', { class: 'f', text: 'Kaç kez gönderilsin? (1–100)' }),
+      el('input', { class: 'input', id: 'channelMessageCount', type: 'number', min: '1', max: '100', step: '1', value: '1' }),
+      el('div', { class: 'hint', text: 'Tekrarlanan gönderimlerde etiket bildirimi her kanalda yalnızca ilk mesajda gider.' }),
       el('div', { class: 'anonymous-option' }, [
         el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAnonymous', checked: true }), el('span', { text: 'Anonymous' })]),
         el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur; panel kullanıcısının adı görünmez.' })
@@ -1059,8 +1065,10 @@ function editChannel(ch) {
         el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions', checked: true }), el('span', { text: 'Kullanıcı ve rol etiketlerini etkinleştir' })]),
         el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowEveryone', checked: true }), el('span', { text: '@everyone ve @here etiketlerini etkinleştir' })])
       ]),
+      el('div', { class: 'hint', id: 'channelMessageProgress', style: 'min-height:18px;margin:6px 0' }),
       el('div', { class: 'row' }, [
-        el('button', { class: 'btn btn-primary', text: 'Mesajı gönder', onclick: () => sendChannelMessage(ch) }),
+        el('button', { class: 'btn btn-primary', id: 'channelMessageSend', text: 'Mesajı gönder', onclick: () => sendChannelMessage(ch) }),
+        el('button', { class: 'btn btn-danger', id: 'channelMessageStop', text: 'Gönderimi durdur', style: 'display:none' }),
         el('button', { class: `btn ${ch.locked ? 'btn-ok' : 'btn-danger'}`, text: ch.locked ? 'Kanal kilidini aç' : 'Kanalı kilitle', onclick: () => toggleChannelLock(ch) })
       ])
     ]));
@@ -1072,19 +1080,184 @@ function editChannel(ch) {
   openModal(body);
 }
 
+async function sendMessageBatch(channels, content, repeatCount, options, onProgress) {
+  if (stopActiveMessageBatch) throw new Error('Önceki gönderimin durması bekleniyor.');
+  const total = channels.length * repeatCount;
+  let sent = 0;
+  let attempted = 0;
+  const failures = [];
+  let stopRequested = false;
+  const stop = () => { stopRequested = true; };
+  stopActiveMessageBatch = stop;
+
+  try {
+    outer: for (const channel of channels) {
+      for (let repeat = 0; repeat < repeatCount; repeat += 1) {
+        if (stopRequested) break outer;
+        attempted += 1;
+        try {
+          const firstInChannel = repeat === 0;
+          const result = await api('/api/channels/message', {
+            method: 'POST',
+            body: {
+              channelId: channel.id,
+              content,
+              allowMentions: firstInChannel && options.allowMentions,
+              allowEveryone: firstInChannel && options.allowEveryone,
+              anonymous: options.anonymous
+            }
+          });
+          if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
+          sent += 1;
+        } catch (err) {
+          failures.push({ channel: channel.name, error: err.message || 'Mesaj gönderilemedi.' });
+          onProgress?.({ sent, attempted, total, channel, failures });
+          break;
+        }
+        onProgress?.({ sent, attempted, total, channel, failures });
+      }
+    }
+  } finally {
+    if (stopActiveMessageBatch === stop) stopActiveMessageBatch = null;
+  }
+
+  return { sent, attempted, total, failures, stopped: stopRequested };
+}
+
+function reportMessageBatchResult(result) {
+  if (result.stopped) {
+    return toast(`Gönderim durduruldu: ${result.sent}/${result.total} mesaj gönderildi.`, 'warn');
+  }
+  if (result.failures.length) {
+    const first = result.failures[0];
+    const more = result.failures.length > 1 ? ` Ayrıca ${result.failures.length - 1} hedefte hata var.` : '';
+    return toast(`${result.sent}/${result.total} mesaj gönderildi. #${first.channel}: ${first.error}${more}`, 'warn');
+  }
+  toast(`${result.sent} mesaj gönderildi.`, 'ok');
+}
+
 async function sendChannelMessage(ch) {
   const input = $('#channelMessage');
   const content = (input?.value || '').trim();
   if (!content) return toast('Gönderilecek mesajı yaz', 'warn');
+  const repeatCount = Number($('#channelMessageCount')?.value || 1);
+  if (!Number.isInteger(repeatCount) || repeatCount < 1 || repeatCount > 100) {
+    return toast('Gönderim sayısı 1 ile 100 arasında olmalı.', 'warn');
+  }
+
+  const sendButton = $('#channelMessageSend');
+  const stopButton = $('#channelMessageStop');
+  const progress = $('#channelMessageProgress');
+  stopButton.onclick = () => {
+    stopActiveMessageBatch?.();
+    stopButton.disabled = true;
+    progress.textContent = 'Durduruluyor…';
+  };
+  sendButton.disabled = true;
+  stopButton.disabled = false;
+  stopButton.style.display = 'inline-flex';
+  progress.textContent = 'Gönderim başlıyor…';
   try {
-    const allowMentions = Boolean($('#channelAllowMentions')?.checked);
-    const allowEveryone = Boolean($('#channelAllowEveryone')?.checked);
-    const anonymous = Boolean($('#channelAnonymous')?.checked);
-    const r = await api('/api/channels/message', { method: 'POST', body: { channelId: ch.id, content, allowMentions, allowEveryone, anonymous } });
-    if (!r.ok) return toast(r.error || 'Mesaj gönderilemedi', 'err');
-    input.value = '';
-    toast('Mesaj kanala gönderildi', 'ok');
-  } catch (err) { toast(err.message, 'err'); }
+    const result = await sendMessageBatch([ch], content, repeatCount, {
+      allowMentions: Boolean($('#channelAllowMentions')?.checked),
+      allowEveryone: Boolean($('#channelAllowEveryone')?.checked),
+      anonymous: Boolean($('#channelAnonymous')?.checked)
+    }, (state) => {
+      progress.textContent = `Gönderiliyor: ${state.sent}/${state.total} · #${state.channel.name}`;
+    });
+    if (result.sent === result.total) input.value = '';
+    progress.textContent = result.stopped
+      ? `Durduruldu: ${result.sent}/${result.total} gönderildi.`
+      : `${result.sent}/${result.total} gönderildi.`;
+    reportMessageBatchResult(result);
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    sendButton.disabled = false;
+    stopButton.disabled = false;
+    stopButton.style.display = 'none';
+  }
+}
+
+function openBulkChannelMessage() {
+  const channels = state.channels.filter((ch) => state.selectedChannels.has(ch.id) && ['text', 'announcement'].includes(ch.type));
+  if (!channels.length) return toast('Toplu mesaj için metin veya duyuru kanalı seç.', 'warn');
+  if (channels.length > 100) return toast('Toplu gönderimde en fazla 100 metin/duyuru kanalı seçebilirsin.', 'warn');
+
+  const maxRepeat = Math.floor(100 / channels.length);
+  const messageInput = el('textarea', { class: 'input', id: 'bulkChannelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' });
+  const countInput = el('input', { class: 'input', id: 'bulkChannelMessageCount', type: 'number', min: '1', max: String(maxRepeat), step: '1', value: '1' });
+  const anonymousInput = el('input', { type: 'checkbox', id: 'bulkChannelAnonymous', checked: true });
+  const mentionInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowMentions', checked: true });
+  const everyoneInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowEveryone', checked: true });
+  const progress = el('div', { class: 'hint', style: 'min-height:18px;margin:6px 0' });
+  const stopButton = el('button', { class: 'btn btn-danger', text: 'Gönderimi durdur', style: 'display:none' });
+  const sendButton = el('button', { class: 'btn btn-primary', text: `Toplu gönder (${channels.length} kanal)` });
+
+  sendButton.addEventListener('click', async () => {
+    const content = messageInput.value.trim();
+    if (!content) return toast('Gönderilecek mesajı yaz.', 'warn');
+    const repeatCount = Number(countInput.value);
+    if (!Number.isInteger(repeatCount) || repeatCount < 1 || repeatCount > maxRepeat) {
+      return toast(`Bu seçimde kanal başına 1–${maxRepeat} tekrar olabilir (toplam en fazla 100 mesaj).`, 'warn');
+    }
+
+    stopButton.onclick = () => {
+      stopActiveMessageBatch?.();
+      stopButton.disabled = true;
+      progress.textContent = 'Durduruluyor…';
+    };
+    sendButton.disabled = true;
+    stopButton.disabled = false;
+    stopButton.style.display = 'inline-flex';
+    progress.textContent = 'Toplu gönderim başlıyor…';
+    try {
+      const result = await sendMessageBatch(channels, content, repeatCount, {
+        allowMentions: mentionInput.checked,
+        allowEveryone: everyoneInput.checked,
+        anonymous: anonymousInput.checked
+      }, (state) => {
+        progress.textContent = `Gönderiliyor: ${state.sent}/${state.total} · #${state.channel.name}`;
+      });
+      if (result.sent === result.total) messageInput.value = '';
+      progress.textContent = result.stopped
+        ? `Durduruldu: ${result.sent}/${result.total} gönderildi.`
+        : `${result.sent}/${result.total} gönderildi.`;
+      reportMessageBatchResult(result);
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      sendButton.disabled = false;
+      stopButton.disabled = false;
+      stopButton.style.display = 'none';
+    }
+  });
+
+  openModal([
+    el('div', { class: 'modal-head' }, [
+      el('div', {}, [el('h3', { text: 'Toplu mesaj gönder' }), el('div', { class: 'sub', text: `${channels.length} metin/duyuru kanalı seçili` })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    ]),
+    el('label', { class: 'f', text: 'Mesaj' }),
+    messageInput,
+    el('label', { class: 'f', text: `Her kanala kaç kez? (1–${maxRepeat})` }),
+    countInput,
+    el('div', { class: 'hint', text: `Bu gönderimde toplam en fazla 100 mesaj olacak. Etiket bildirimi her kanalda yalnızca ilk mesaja eklenir.` }),
+    el('div', { class: 'anonymous-option' }, [
+      el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
+      el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
+    ]),
+    el('div', { class: 'mention-options' }, [
+      el('label', { class: 'mention-option' }, [mentionInput, el('span', { text: 'Kullanıcı ve rol etiketleri' })]),
+      el('label', { class: 'mention-option danger' }, [everyoneInput, el('span', { text: '@everyone ve @here etiketleri' })])
+    ]),
+    progress,
+    el('div', { class: 'row', style: 'margin-top:12px' }, [
+      el('button', { class: 'btn', text: 'Vazgeç', onclick: closeModal }),
+      stopButton,
+      sendButton
+    ])
+  ]);
 }
 
 async function toggleChannelLock(ch) {
