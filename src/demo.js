@@ -273,7 +273,7 @@ function router() {
   });
 
   r.post('/api/channels/bulk/create', (req, res) => {
-    const names = Array.isArray(req.body.names) ? req.body.names.slice(0, 50) : [];
+    const names = Array.isArray(req.body.names) ? req.body.names : [];
     names.forEach((name, i) => channels.push({ id: `bc${Date.now()}${i}`, name, type: req.body.type || 'text', parentId: req.body.categoryId || null, position: channels.length, topic: null }));
     res.json({ ok: names.length > 0, created: names.length, failed: 0, results: [] });
   });
