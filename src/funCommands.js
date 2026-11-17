@@ -67,6 +67,76 @@ const ORACLES = {
   bugün: ['Bugün şans senden yana.', 'Küçük bir sürpriz kapıda.', 'Bir mesaj bütün modunu değiştirecek.', 'Harcamalara dikkat et.', 'Bol bol gülümseyeceğin bir gün.', 'Uyku bugün en iyi dostun.']
 };
 
+// Metinleri birkaç sabit yanıta hapsetmek yerine parçaları birleştiriyoruz. Sosyal
+// aksiyonlarda 3 x 12 x 10 = 360+, falda binlerce farklı doğal kombinasyon oluşur.
+const ACTION_MOODS = [
+  'Ortam bir anda anime sahnesine döndü.', 'Arka planda açılış müziği çalmaya başladı.',
+  'Sunucudaki herkes dönüp bu ana baktı.', 'Kamera dramatik biçimde yakınlaştı.',
+  'Efekt bütçesinin tamamı bu sahneye harcandı.', 'Zaman sanki birkaç saniyeliğine durdu.',
+  'Bu hareket sezon finaline damga vurdu.', 'Sohbetin enerjisi bir anda yükseldi.',
+  'Lores kameraları bu efsane anı kaydetti.', 'Anime yönetmeni bu sahneyi onayladı.',
+  'Beklenmedik ama kusursuz bir hamleydi.', 'Sahne tekrar oynatılmak üzere arşivlendi.'
+];
+const ACTION_ENDINGS = [
+  'Devamı bir sonraki bölümde!', 'Karşı hamle gelecek mi?', 'İzleyenlerden tam puan aldı.',
+  'Bu an kolay kolay unutulmayacak.', 'Sunucu tarihine altın harflerle yazıldı.',
+  'Duygular tavan yaptı.', 'Kritik başarı!', 'Enerji seviyesi: maksimum.',
+  'Birileri bunu klip alsın!', 'Lores Bot sonucu resmen onayladı.'
+];
+const RECENT_TEXT = new Map();
+function pickFresh(key, factory, recentLimit = 15) {
+  const recent = RECENT_TEXT.get(key) || [];
+  let value;
+  for (let i = 0; i < 12; i++) {
+    value = factory();
+    if (!recent.includes(value)) break;
+  }
+  recent.push(value);
+  if (recent.length > recentLimit) recent.shift();
+  RECENT_TEXT.set(key, recent);
+  return value;
+}
+function randomOf(list) { return list[Math.floor(Math.random() * list.length)]; }
+function actionText(name, info) {
+  return pickFresh(`action:${name}`, () => `${randomOf(info.lines)} ${randomOf(ACTION_MOODS)} ${randomOf(ACTION_ENDINGS)}`);
+}
+
+const FORTUNE_OPENINGS = [
+  'Kristal kürede parlak bir yol beliriyor.', 'Kartlar beklenmedik bir değişimi gösteriyor.',
+  'Yıldızların dizilimi sana küçük bir sır veriyor.', 'Sislerin arasından güçlü bir işaret çıkıyor.',
+  'Uzaklardan gelen bir enerji sana yaklaşıyor.', 'Kader çizgin bugün farklı parlıyor.',
+  'Ay ışığı önündeki kapıyı aydınlatıyor.', 'Evren bugün kulağına bir şey fısıldıyor.',
+  'Kahve telvesinde belirgin bir sembol oluştu.', 'Eski bir dileğin yeniden canlanıyor.',
+  'Şans çarkı yavaşça senin yönüne dönüyor.', 'Kalbinin pusulası yeni bir yön gösteriyor.'
+];
+const FORTUNE_EVENTS = [
+  'beklemediğin güzel bir haber alacaksın', 'uzun süredir ertelediğin bir başlangıcı yapacaksın',
+  'seni gülümsetecek biriyle konuşacaksın', 'küçük bir fırsatı büyük bir başarıya çevireceksin',
+  'kaybettiğini düşündüğün motivasyonu yeniden bulacaksın', 'önemli bir konuda doğru kararı vereceksin',
+  'eski bir dosttan sürpriz bir mesaj alacaksın', 'yeni bir yeteneğini fark edeceksin',
+  'maddi veya manevi küçük bir rahatlama yaşayacaksın', 'cesaret isteyen bir adım atacaksın',
+  'çevrendeki birinin gerçek değerini anlayacaksın', 'şanslı bir tesadüfle karşılaşacaksın'
+];
+const FORTUNE_ADVICE = [
+  'İlk işareti küçümseme.', 'Sabırlı ol; doğru an yaklaşmış durumda.', 'Bu kez iç sesine güven.',
+  'Geçmişin korkusunu geleceğe taşıma.', 'Karşına çıkan küçük ayrıntıya dikkat et.',
+  'Cesur davran ama acele karar verme.', 'Gülümsemeyi ve teşekkür etmeyi unutma.',
+  'Planını herkesle paylaşmadan ilerle.', 'Enerjini seni aşağı çeken şeylerden koru.',
+  'Önce kendine dürüst ol.', 'Yeni bir teklife hemen hayır deme.', 'Şans geldiğinde hazır ol.'
+];
+function fortuneText() {
+  return pickFresh('oracle:fal', () => `${randomOf(FORTUNE_OPENINGS)} Yakında **${randomOf(FORTUNE_EVENTS)}**. ${randomOf(FORTUNE_ADVICE)}`, 30);
+}
+
+const MOTTO_START = ['Bugün', 'Her yeni günde', 'Zorlandığında', 'Yol uzadığında', 'Kimse görmese bile', 'Kendinden şüphe ettiğinde', 'Bir kapı kapandığında', 'Hedefin uzakta görünse de', 'Sessizlikte', 'Başarı geciktiğinde', 'Korktuğun anda', 'Yeniden başlarken'];
+const MOTTO_END = ['küçük adımların büyük yollar açtığını hatırla.', 'kendi ışığını kısmadan ilerle.', 'cesaretin korkudan bir adım önde olsun.', 'sabırla kurduğun şeyin kalıcı olacağını bil.', 'başkasını değil dünkü kendini geç.', 'enerjini değiştirebileceğin şeylere ver.', 'yenilginin yalnızca yeni bir ders olduğunu unutma.', 'doğru zamanın bazen sen başlayınca geldiğini bil.', 'sessiz emeğinin bir gün konuşacağını hatırla.', 'vazgeçmek yerine kısa bir mola ver.', 'kalbinle aklını aynı hedefte buluştur.', 'hikâyenin henüz bitmediğini unutma.'];
+function mottoText() { return pickFresh('oracle:motto', () => `${randomOf(MOTTO_START)} ${randomOf(MOTTO_END)}`, 25); }
+
+const COMPLIMENT_TRAITS = ['Gülüşün', 'Enerjin', 'Tarzın', 'Samimiyetin', 'Sohbetin', 'Özgüvenin', 'Nezaketin', 'Mizahın', 'Bakış açın', 'Pozitifliğin', 'Dostluğun', 'Varlığın'];
+const COMPLIMENT_EFFECTS = ['sunucunun bütün havasını değiştiriyor.', 'bulunduğun her yere iyi geliyor.', 'insanlara güven veriyor.', 'gerçekten fark yaratıyor.', 'günün en güzel ayrıntısı oluyor.', 'çevrendekileri istemeden gülümsetiyor.', 'seni kolay unutulmaz biri yapıyor.', 'fazlasıyla kaliteli bir iz bırakıyor.', 'insanların kendini rahat hissetmesini sağlıyor.', 'her ortamda hemen fark ediliyor.', 'seni olduğundan da özel gösteriyor.', 'bugün ekstra parlıyor.'];
+function complimentText() { return pickFresh('oracle:iltifat', () => `${randomOf(COMPLIMENT_TRAITS)} ${randomOf(COMPLIMENT_EFFECTS)}`, 25); }
+
+
 function actionBuilder(name, info) {
   const builder = new SlashCommandBuilder().setName(name).setDescription(`${info.emoji} Bir üyeye ${name} etkileşimi gönder`);
   if (name === 'kovala') {
@@ -122,7 +192,7 @@ function bar(n) {
   return `${'▰'.repeat(full)}${'▱'.repeat(10 - full)}`;
 }
 
-const GIF_CACHE = new Map();
+const GIF_RECENT = new Map();
 const FALLBACK_GIF = 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif';
 
 // Her aksiyon önce tam isimli anime kategorisini dener. İkinci isim yalnızca aynı
@@ -137,9 +207,6 @@ const ACTION_GIF_ALIASES = {
 };
 
 async function fetchProviderGif(provider, endpoint) {
-  const key = `${provider}:${endpoint}`;
-  const cached = GIF_CACHE.get(key);
-  if (cached && cached.expires > Date.now()) return cached.url;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
   try {
@@ -152,7 +219,6 @@ async function fetchProviderGif(provider, endpoint) {
     const gif = provider === 'otaku'
       ? json.url
       : (json.results && json.results[0] ? json.results[0].url : null);
-    if (gif) GIF_CACHE.set(key, { url: gif, expires: Date.now() + 5 * 60 * 1000 });
     return gif || null;
   } catch {
     return null;
@@ -163,15 +229,26 @@ async function fetchProviderGif(provider, endpoint) {
 
 async function getGif(action) {
   const aliases = ACTION_GIF_ALIASES[action] || [action];
-  // İki farklı anime GIF sağlayıcısı sayesinde her komut kendi temasıyla eşleşir.
+  const recent = GIF_RECENT.get(action) || [];
+  let duplicate = null;
+  // Sağlayıcılar her istekte rastgele GIF verir. Son 30 GIF'i tutup aynı URL gelirse
+  // yeniden isteyerek peş peşe aynı animasyonu göstermemeyi sağlarız.
   for (const endpoint of aliases) {
     for (const provider of ['otaku', 'nekos']) {
-      const url = await fetchProviderGif(provider, endpoint);
-      if (url) return url;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const url = await fetchProviderGif(provider, endpoint);
+        if (!url) break;
+        if (!recent.includes(url)) {
+          recent.push(url);
+          if (recent.length > 30) recent.shift();
+          GIF_RECENT.set(action, recent);
+          return url;
+        }
+        duplicate = url;
+      }
     }
   }
-  // İki sağlayıcının da tamamen çevrimdışı olduğu nadir durumda kart boş kalmaz.
-  return FALLBACK_GIF;
+  return duplicate || FALLBACK_GIF;
 }
 
 function baseEmbed(interaction, color = COLORS.purple) {
@@ -191,7 +268,7 @@ async function runAction(interaction, name, info) {
   }
   await interaction.deferReply();
   const gif = await getGif(info.api);
-  const line = info.lines[Math.floor(Math.random() * info.lines.length)];
+  const line = actionText(name, info);
   const actionColors = [COLORS.pink, COLORS.purple, COLORS.blue, COLORS.gold, COLORS.green];
   const accent = actionColors[seededPercent(name, actor.id, target.id) % actionColors.length];
   const title = isChase
@@ -295,21 +372,18 @@ async function runOracle(interaction) {
   }
   if (n === 'iltifat') {
     const u = interaction.options.getUser('üye');
-    const list = ['Gülüşün sunucunun bütün havasını değiştiriyor.', 'Enerjin bulunduğun her yere iyi geliyor.', 'Gerçekten güven veren birisin.', 'Tarzın tartışmasız çok kaliteli.', 'İyi ki bu sunucudasın!', 'Bugün fazlasıyla harika görünüyorsun.'];
-    return interaction.reply({ content: `<@${u.id}>`, embeds: [e.setColor(COLORS.pink).setTitle('💐 Sana bir iltifat var!').setDescription(`> ${list[Math.floor(Math.random()*list.length)]}\n\n— <@${interaction.user.id}>`).setThumbnail(u.displayAvatarURL({ size: 256 }))] });
+    return interaction.reply({ content: `<@${u.id}>`, embeds: [e.setColor(COLORS.pink).setTitle('💐 Sana bir iltifat var!').setDescription(`> ${complimentText()}\n\n— <@${interaction.user.id}>`).setThumbnail(u.displayAvatarURL({ size: 256 }))] });
   }
   if (n === 'fal') {
-    const list = ['Yakında beklemediğin güzel bir haber alacaksın.', 'Geçmişten biri yeniden kapını çalabilir.', 'Önünde iki yol var; cesur olanı seç.', 'Küçük bir fırsat büyük bir başlangıca dönüşecek.', 'Kalbinden geçen dilek düşündüğünden daha yakın.'];
-    return interaction.reply({ embeds: [e.setColor(COLORS.purple).setTitle('🔮 Lores Kristal Küresi').setDescription(`*Dumanlar dağılıyor…*\n\n**${list[Math.floor(Math.random()*list.length)]}**`)] });
+    return interaction.reply({ embeds: [e.setColor(COLORS.purple).setTitle('🔮 Lores Kristal Küresi').setDescription(`*Dumanlar dağılıyor…*\n\n${fortuneText()}`)] });
   }
   if (n === 'motto') {
-    const list = ['Sessiz ilerle, başarı sesini kendisi duyurur.', 'Bugünün küçük adımı yarının büyük zaferidir.', 'Kendinin en iyi sürümüne rakip ol.', 'Cesaret, korkuya rağmen devam etmektir.', 'Enerjini değiştiremeyeceğin şeylere harcama.'];
-    return interaction.reply({ embeds: [e.setColor(COLORS.gold).setTitle('🌟 Günün Mottosu').setDescription(`> **${list[Math.floor(Math.random()*list.length)]}**`)] });
+    return interaction.reply({ embeds: [e.setColor(COLORS.gold).setTitle('🌟 Günün Mottosu').setDescription(`> **${mottoText()}**`)] });
   }
   const key = n === 'gerçekmi' ? 'gerçek' : n;
   const answers = ORACLES[key] || ORACLES.bugün;
   const question = interaction.options.getString('seçenekler') || interaction.options.getString('iddia') || interaction.options.getString('soru') || 'Bugün seni ne bekliyor?';
-  return interaction.reply({ embeds: [e.setTitle('🔮 Lores cevaplıyor').setDescription(`**${question}**\n\n> ${answers[Math.floor(Math.random() * answers.length)]}`)] });
+  return interaction.reply({ embeds: [e.setTitle('🔮 Lores cevaplıyor').setDescription(`**${question}**\n\n> ${pickFresh(`oracle:${key}`, () => randomOf(answers), Math.min(answers.length - 1, 12))}`)] });
 }
 
 async function handleFunInteraction(interaction) {
