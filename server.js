@@ -75,6 +75,65 @@ if (DEMO_MODE) {
   app.use(require('./src/demo').router());
 }
 
+// ---------------------------------------------------------------- KURUCU KİLİDİ
+const EXPLICIT_OWNER_IDS = new Set(
+  String(process.env.OWNER_ID || process.env.OWNER_IDS || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+);
+let cachedAppOwnerIds = null;
+
+/**
+ * Yalnızca panel kurucusunun (OWNER_ID veya Discord uygulama sahibi) giriş yapmasına izin verir.
+ * OWNER_ID girilmediyse Discord API (/oauth2/applications/@me) üzerinden botun sahibini otomatik bulur.
+ */
+async function resolveOwnerIds() {
+  if (EXPLICIT_OWNER_IDS.size > 0) return EXPLICIT_OWNER_IDS;
+  if (cachedAppOwnerIds && cachedAppOwnerIds.size > 0) return cachedAppOwnerIds;
+
+  const ids = new Set();
+  const c = botState.client;
+  if (c && c.application) {
+    try {
+      const appInfo = await c.application.fetch();
+      if (appInfo.owner) {
+        if (appInfo.owner.members) {
+          for (const m of appInfo.owner.members.values()) ids.add(m.id);
+        } else if (appInfo.owner.id) {
+          ids.add(appInfo.owner.id);
+        }
+      }
+    } catch {}
+  }
+  if (!ids.size && process.env.DISCORD_TOKEN) {
+    try {
+      const res = await fetch('https://discord.com/api/v10/oauth2/applications/@me', {
+        headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN.trim()}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.team && Array.isArray(data.team.members)) {
+          for (const m of data.team.members) {
+            if (m.user && m.user.id) ids.add(m.user.id);
+          }
+        } else if (data.owner && data.owner.id) {
+          ids.add(data.owner.id);
+        }
+      }
+    } catch {}
+  }
+  if (ids.size) cachedAppOwnerIds = ids;
+  return ids;
+}
+
+async function isAllowedOwner(userId) {
+  if (!userId) return false;
+  if (DEMO_MODE) return true;
+  const owners = await resolveOwnerIds();
+  return owners.has(String(userId));
+}
+
 // ---------------------------------------------------------------- YARDIMCILAR
 const client = () => botState.client;
 
@@ -86,21 +145,15 @@ function getGuild(guildId) {
   return guild;
 }
 
-/** Discord API'sinden kullanıcının o sunucudaki yetkilerini çeker. */
-async function fetchUserPermissions(guildId, accessToken) {
-  const res = await fetch(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!res.ok) {
-    if (res.status === 404) return null; // sunucuda değil
-    throw new Error(`Discord üye bilgisi alınamadı (${res.status})`);
+async function requireAuth(req, res, next) {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ error: 'Giriş yapmalısın.' });
   }
-  return res.json();
-}
-
-function requireAuth(req, res, next) {
-  if (req.session && req.session.user) return next();
-  res.status(401).json({ error: 'Giriş yapmalısın.' });
+  if (!(await isAllowedOwner(req.session.user.id))) {
+    req.session = null;
+    return res.status(403).json({ error: 'Bu panel sadece kurucuya özeldir.' });
+  }
+  next();
 }
 
 function wrap(handler) {
@@ -114,28 +167,16 @@ function wrap(handler) {
 
 const MOD_PERMS = PermissionsBitField.Flags;
 
-function permsOf(member) {
-  return new PermissionsBitField(BigInt(member.permissions || 0));
-}
-
-/** İstek atan kullanıcının sunucudaki temsilcisini (member) döndürür. */
+/** Doğrulanmış panel kurucusu için aktör nesnesi (sunucu sınırını botun kendi yetkileri belirler). */
 async function actorOf(req, guild) {
-  const data = await fetchUserPermissions(req.session.guildId, req.session.accessToken);
-  if (!data) throw new Error('Bu sunucunun üyesi değilsin.');
   const user = req.session.user;
-  const id = data.user ? data.user.id : user.id;
-  const isOwner = guild.ownerId === id;
-  const permissions = isOwner
-    ? new PermissionsBitField(PermissionsBitField.Flags.Administrator)
-    : permsOf(data);
-  const rolePositions = (data.roles || []).map((rid) => guild.roles.cache.get(rid)?.position || 0);
-  const highest = Math.max(isOwner ? 999 : 0, ...rolePositions, 0);
   return {
-    id,
-    user: { id, tag: `${user.username}#${user.discriminator || '0'}`, username: user.username },
-    permissions,
-    roles: { highest: { position: highest }, cache: new Set(data.roles || []) },
-    guildOwner: isOwner
+    id: user.id,
+    user: { id: user.id, tag: `${user.username}#0`, username: user.username },
+    permissions: new PermissionsBitField(PermissionsBitField.Flags.Administrator),
+    roles: { highest: { position: 999999 }, cache: new Set() },
+    guildOwner: true,
+    panelFounder: true
   };
 }
 
@@ -182,6 +223,14 @@ app.get('/auth/callback', async (req, res) => {
     });
     const user = await userRes.json();
 
+    if (!(await isAllowedOwner(user.id))) {
+      req.session = null;
+      console.warn(`[auth] Yetkisiz giriş denemesi reddedildi: ${user.username} (${user.id})`);
+      const owners = await resolveOwnerIds();
+      const reason = owners.size === 0 ? 'kurucu-belirsiz' : 'yetkisiz';
+      return res.redirect('/?hata=' + reason);
+    }
+
     req.session.accessToken = token.access_token;
     req.session.user = {
       id: user.id,
@@ -211,17 +260,26 @@ function botInviteUrl() {
   return `https://discord.com/oauth2/authorize?${params}`;
 }
 
-app.get('/api/me', (req, res) => {
-  res.json({
-    user: req.session.user || null,
+app.get('/api/me', async (req, res) => {
+  const user = req.session && req.session.user ? req.session.user : null;
+  const isOwner = user ? await isAllowedOwner(user.id) : false;
+  if (user && !isOwner) req.session = null;
+
+  const base = {
+    user: isOwner ? user : null,
+    ownerOnly: true,
     configured: Boolean(CLIENT_ID && CLIENT_SECRET && process.env.DISCORD_TOKEN),
     botReady: botState.ready,
-    botError: botState.error,
-    botTag: botState.ready ? botState.client.user.tag : null,
-    inviteUrl: botInviteUrl(),
-    redirectUri: REDIRECT_URI,
-    setup: setupReport()
-  });
+    redirectUri: REDIRECT_URI
+  };
+
+  if (isOwner) {
+    base.botError = botState.error;
+    base.botTag = botState.ready ? botState.client.user.tag : null;
+    base.inviteUrl = botInviteUrl();
+    base.setup = setupReport();
+  }
+  res.json(base);
 });
 
 /**
@@ -241,6 +299,7 @@ function setupReport() {
   add(Boolean(process.env.PUBLIC_URL), 'PUBLIC_URL elle ayarlı', 'Elle ayarlamak zorunlu değil; Render adresi otomatik de algılanır');
   add(botState.ready, 'Bot Discord sunucusuna bağlı', botState.error || 'Loglarda "[bot]" satırlarına bak');
   add(!DEMO_MODE, 'DEMO_MODE kapalı', 'DEMO_MODE=0 olmalı (1 ise sahte veri kullanılır)');
+  add(EXPLICIT_OWNER_IDS.size > 0 || (cachedAppOwnerIds && cachedAppOwnerIds.size > 0), 'Kurucu ID belirlendi', 'OWNER_ID tanımlı değilse bot giriş yapınca uygulama sahibi otomatik alınır');
 
   return {
     baseUrl: BASE_URL,
@@ -254,8 +313,24 @@ function setupReport() {
   };
 }
 
-// Kurulum teşhis sayfası — giriş gerektirmez, sır göstermez.
-app.get('/setup', (req, res) => {
+// Kurulum teşhis sayfası — kurucu girişi gerektirir (giriş yoksa yalnızca yönlendirme adresi gösterilir).
+app.get('/setup', async (req, res) => {
+  const user = req.session && req.session.user ? req.session.user : null;
+  const isOwner = user ? await isAllowedOwner(user.id) : false;
+  if (!isOwner) {
+    return res.type('html').send(`<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>Kurulum</title>
+    <style>body{font-family:system-ui,sans-serif;background:#0b0d13;color:#e8ebf5;display:grid;place-items:center;min-height:100vh;padding:24px}
+    .card{max-width:520px;background:#161a25;border:1px solid #262c3d;border-radius:14px;padding:24px;line-height:1.7}
+    code{background:#0f1219;border:1px solid #262c3d;padding:3px 7px;border-radius:6px;word-break:break-all;font-size:12.5px}
+    a.btn{display:inline-block;background:#5865f2;color:#fff;padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:600;margin-top:14px}</style>
+    </head><body><div class="card">
+      <h2>🔒 Kurucu Girişi Gerekli</h2>
+      <p style="color:#8b93ab;font-size:13.5px">Bu panel sadece kurucuya özeldir. Detaylı teşhisi görmek için kurucu hesabınla giriş yap.</p>
+      <div style="margin-top:12px;font-size:13px">Discord OAuth2 Redirect adresi:<br><code>${REDIRECT_URI}</code></div>
+      <a class="btn" href="/auth/login">Discord ile Giriş Yap</a>
+    </div></body></html>`);
+  }
   const r = setupReport();
   const rows = r.checks
     .map(
@@ -306,35 +381,33 @@ app.get('/setup', (req, res) => {
   </div></body></html>`);
 });
 
-/** Kullanıcının botun bulunduğu ve yönetebildiği sunucular. */
+/** Botun bulunduğu TÜM sunucular (kurucu her sunucuyu inceleyip yönetebilir). */
 app.get(
   '/api/guilds',
   requireAuth,
   wrap(async (req, res) => {
-    const listRes = await fetch('https://discord.com/api/v10/users/@me/guilds', {
-      headers: { Authorization: `Bearer ${req.session.accessToken}` }
-    });
-    if (!listRes.ok) throw new Error('Sunucu listesi alınamadı.');
-    const userGuilds = await listRes.json();
     const c = client();
-    const botGuilds = c ? c.guilds.cache : new Map();
+    const botGuilds = c && botState.ready ? [...c.guilds.cache.values()] : [];
 
-    const result = userGuilds
-      .filter((g) => botGuilds.has(g.id))
+    const result = botGuilds
       .map((g) => {
-        const botGuild = botGuilds.get(g.id);
-        const userPerms = new PermissionsBitField(BigInt(g.permissions || 0));
-        const canManage = g.owner || userPerms.has(MOD_PERMS.Administrator) || userPerms.has(MOD_PERMS.ManageGuild);
+        const me = g.members.me;
+        const perms = me ? me.permissions : new PermissionsBitField(0n);
+        const isAdmin = perms.has(MOD_PERMS.Administrator);
+        const canManageChannels = perms.has(MOD_PERMS.ManageChannels);
         return {
           id: g.id,
           name: g.name,
-          icon: g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=128` : null,
-          owner: Boolean(g.owner),
-          canManage,
-          memberCount: botGuild ? botGuild.memberCount : null
+          icon: g.iconURL({ size: 128 }),
+          ownerId: g.ownerId,
+          owner: g.ownerId === req.session.user.id,
+          canManage: isAdmin || canManageChannels || perms.has(MOD_PERMS.ManageGuild),
+          botIsAdmin: isAdmin,
+          memberCount: g.memberCount,
+          channelCount: g.channels.cache.size
         };
       })
-      .sort((a, b) => Number(b.canManage) - Number(a.canManage) || a.name.localeCompare(b.name));
+      .sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0) || a.name.localeCompare(b.name, 'tr'));
 
     res.json({ guilds: result });
   })
@@ -614,6 +687,32 @@ app.post('/api/channels/delete', requireAuth, wrap(async (req, res) => {
   res.json(result);
 }));
 
+app.post('/api/channels/bulk/rename', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const { items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) throw new Error('Düzenlenecek kanal seçilmedi.');
+  if (items.length > 50) throw new Error('Tek seferde en fazla 50 kanal gönderilebilir.');
+  const result = await mod.bulkRenameChannels(guild, actor, items);
+  if (result.ok && result.updated > 0) {
+    settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal adı değiştirdi (${result.updated} kanal)`);
+  }
+  res.json(result);
+}));
+
+app.post('/api/channels/bulk/delete', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const { channelIds, deleteChildren } = req.body || {};
+  if (!Array.isArray(channelIds) || !channelIds.length) throw new Error('Silinecek kanal seçilmedi.');
+  if (channelIds.length > 50) throw new Error('Tek seferde en fazla 50 kanal gönderilebilir.');
+  const result = await mod.bulkDeleteChannels(guild, actor, channelIds, Boolean(deleteChildren));
+  if (result.ok && result.deleted > 0) {
+    settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal sildi (${result.deleted} kanal)`);
+  }
+  res.json(result);
+}));
+
 // ---------------------------------------------------------------- ROLLER
 app.get(
   '/api/roles',
@@ -801,25 +900,13 @@ app.post(
 );
 
 // ---------------------------------------------------------------- BOT BİLGİLERİ
-app.get('/api/bot/invite', (req, res) => {
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    permissions: '8',
-    scope: 'bot applications.commands'
-  });
-  res.json({ url: `https://discord.com/oauth2/authorize?${params}` });
+app.get('/api/bot/invite', requireAuth, (req, res) => {
+  res.json({ url: botInviteUrl() });
 });
 
 app.get('/health', (req, res) => {
-  const failed = setupReport().checks.filter((c) => !c.ok).map((c) => c.title);
   res.json({
     ok: true,
-    botReady: botState.ready,
-    botError: botState.error,
-    redirectUri: REDIRECT_URI,
-    demoMode: DEMO_MODE,
-    setupWarnings: failed,
-    uptime: process.uptime(),
     version: require('./package.json').version
   });
 });
@@ -834,11 +921,14 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[web] Panel çalışıyor: ${BASE_URL} (port ${PORT})${DEMO_MODE ? ' [DEMO]' : ''}`);
   console.log(`[web] Panel adresi kaynağı: ${BASE_URL_SOURCE}${HAS_RENDER ? '' : ' — Render ortamı algılanmadı'}`);
   console.log(`[web] Discord OAuth2 redirect_uri: ${REDIRECT_URI}`);
-  console.log(`[web] Bu adresi Discord > OAuth2 > Redirects listesine birebir ekle. Teşhis: ${BASE_URL}/setup`);
-  if (BASE_URL.includes('localhost') && !DEMO_MODE) {
-    console.warn('[web] UYARI: Panel adresi localhost görünüyor. Render\'da PUBLIC_URL boşsa RENDER_EXTERNAL_URL otomatik kullanılır; yine de kontrol et.');
+  console.log(`[web] Erişim modu: Yalnızca kurucu${EXPLICIT_OWNER_IDS.size ? ` (OWNER_ID: ${[...EXPLICIT_OWNER_IDS].join(', ')})` : ' (Discord uygulama sahibi otomatik)'}`);
+  if (!DEMO_MODE) {
+    startBot();
+    resolveOwnerIds().then((ids) => {
+      if (ids.size) console.log(`[auth] Kurucu ID(leri): ${[...ids].join(', ')}`);
+      else console.warn('[auth] UYARI: Kurucu ID henüz alınamadı. OWNER_ID ortam değişkenini ekleyebilirsin.');
+    });
   }
-  if (!DEMO_MODE) startBot();
 });
 
 module.exports = { app };

@@ -12,9 +12,16 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - Yasaklılar listesi + tek tıkla yasak kaldırma
 - 3 uyarıya ulaşan üye otomatik 30 dk susturulur
 
-**Kanal yönetimi**
-- Kategoriye göre gruplanmış metin / ses / duyuru kanalları
-- Kanal **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
+**Kanal & kategori yönetimi (tekli ve toplu)**
+- Kategoriye göre gruplanmış metin / ses / duyuru kanalları + arama
+- Tekli kanal veya kategori **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
+- **Toplu seçim:** hızlı seçim (tümü, tüm ses kanalları, tüm metin kanalları, tüm kategoriler, kategori grubu)
+- **Toplu isim değiştirme:** başına/sonuna ekle (`yakında-`), bul & değiştir, hepsini aynı ad yap (`yakında-{n}`), canlı önizleme
+- **Toplu silme:** seçilen onlarca kanalı/kategoriyi tek seferde kaldır
+
+**Erişim güvenliği (yalnızca kurucu)**
+- Panel **sadece bot kurucusuna özeldir** (`OWNER_ID` veya Discord Developer Portal'daki uygulama sahibi otomatik algılanır); başka hesapların girişi otomatik reddedilir
+- Botun bulunduğu **tüm sunucular** tek panelden incelenip yönetilebilir (Discord tarafındaki bot yetkileri sınırında)
 
 **Rol yönetimi**
 - Rol oluştur / sil, üyeye rol ver / al (rol sıralaması korumalı)
@@ -51,6 +58,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 | `CLIENT_SECRET` | OAuth2 client secret |
 | `PUBLIC_URL` | `https://SERVIS-ADIN.onrender.com` (sonunda `/` yok) |
 | `SESSION_SECRET` | Rastgele uzun bir yazı |
+| `OWNER_ID` | *(Opsiyonel)* Kurucu Discord kullanıcı ID (boşsa uygulama sahibi otomatik algılanır) |
 | `DEMO_MODE` | `0` (paneli Discord'suz denemek için `1`) |
 
 7. Botu sunucuya ekle: panelde **Ayarlar → 🔗 Bot Davet Linkini Kopyala** (yönetici yetkisiyle davet eder)
@@ -60,7 +68,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - **Bot rolü en üstte olmalı.** Discord'da yönetilecek üyelerin rolü botun rolünden düşük olmalı; aksi halde bot işlem yapamaz (panel bunu hata mesajıyla söyler).
 - **Render ücretsiz planı 15 dk trafik olmazsa uyur.** Uyku sırasında bot da çevrimdışı olur. Çözüm: ücretli plan ya da [UptimeRobot](https://uptimerobot.com) ile `/health` adresine 5 dakikalık ping.
 - **Veri kalıcılığı:** JSON verisi (`data/db.json`) diske yazılır. Render ücretsiz planda disk kalıcı değildir; kalıcı olsun istersen Render'da **Disk** ekleyip `DATA_DIR=/data` ver (Blueprint'te hazır).
-- Panel oturumu Discord OAuth2 ile açılır; **herkes yalnızca kendi yetkisi kadar** işlem yapabilir.
+- Panel oturumu **yalnızca kurucu hesabına** açıktır; başka kullanıcıların girişi reddedilir. Discord sunucusundaki `!ban`, `!kick` gibi sohbet komutlarında ise her kullanıcının kendi Discord rol/yetki sınırları geçerlidir.
 
 ## 🧪 Yerel çalıştırma
 

@@ -89,7 +89,7 @@ function router() {
 
   r.get('/api/guilds', (req, res) =>
     res.json({
-      guilds: [{ id: GUILD.id, name: `${GUILD.name} (demo)`, icon: null, owner: true, canManage: true, memberCount: members.length }]
+      guilds: [{ id: GUILD.id, name: `${GUILD.name} (demo)`, icon: null, owner: true, canManage: true, botIsAdmin: true, memberCount: members.length, channelCount: channels.length }]
     })
   );
 
@@ -227,6 +227,38 @@ function router() {
     channels = channels.filter((c) => c.id !== ch.id && c.parentId !== ch.id);
     pushLog('channel', `"${ch.name}" kanalı silindi`);
     res.json({ ok: true, message: `"${ch.name}" kanalı silindi.` });
+  });
+
+  r.post('/api/channels/bulk/rename', (req, res) => {
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    let updated = 0;
+    let skipped = 0;
+    const failed = [];
+    for (const item of items) {
+      const ch = channels.find((c) => c.id === item.channelId);
+      if (!ch) { failed.push({ id: item.channelId, name: item.channelId, error: 'Bulunamadı' }); continue; }
+      const clean = String(item.name || '').trim().slice(0, 100);
+      if (!clean) { failed.push({ id: ch.id, name: ch.name, error: 'İsim boş' }); continue; }
+      if (clean === ch.name) { skipped += 1; continue; }
+      ch.name = clean;
+      updated += 1;
+    }
+    if (updated) pushLog('channel', `Toplu isim değiştirildi (${updated} kanal)`);
+    res.json({ ok: true, updated, skipped, failed });
+  });
+
+  r.post('/api/channels/bulk/delete', (req, res) => {
+    const ids = new Set((Array.isArray(req.body.channelIds) ? req.body.channelIds : []).map(String));
+    if (req.body.deleteChildren) {
+      for (const ch of channels) {
+        if (ch.parentId && ids.has(ch.parentId)) ids.add(ch.id);
+      }
+    }
+    const before = channels.length;
+    channels = channels.filter((c) => !ids.has(c.id));
+    const deleted = before - channels.length;
+    if (deleted) pushLog('channel', `Toplu silindi (${deleted} kanal)`);
+    res.json({ ok: true, deleted, failed: [] });
   });
 
   r.get('/api/roles', (req, res) => res.json({ roles }));

@@ -19,16 +19,13 @@ function isAdmin(member) {
 function canActOn(guild, actor, target) {
   if (actor.id === target.id) return 'Kendine bu işlemi uygulayamazsın.';
   if (target.id === guild.ownerId) return 'Sunucu sahibine işlem uygulanamaz.';
-  if (target.user && target.user.bot && actor.id !== guild.ownerId) {
-    // botlar da hedef olabilir, engellemiyoruz
-  }
-  if (actor.id !== guild.ownerId) {
+  const targetTop = target.roles.highest.position;
+  if (!actor.panelFounder && actor.id !== guild.ownerId) {
     const actorTop = actor.roles.highest.position;
-    const targetTop = target.roles.highest.position;
     if (targetTop >= actorTop) return 'Bu üyenin rolü seninkinden yüksek veya eşit.';
-    if (targetTop >= guild.members.me.roles.highest.position) {
-      return 'Bu üyenin rolü botun rolünden yüksek. Bot rolünü yukarı taşı.';
-    }
+  }
+  if (targetTop >= guild.members.me.roles.highest.position) {
+    return 'Bu üyenin rolü botun rolünden yüksek. Bot rolünü yukarı taşı.';
   }
   return null;
 }
@@ -331,6 +328,77 @@ async function createChannel(guild, actor, { name, type = 'text', categoryId = n
   }
 }
 
+async function bulkRenameChannels(guild, actor, items) {
+  const err = requirePerm(actor, PermissionsBitField.Flags.ManageChannels, 'Kanal yönetme');
+  if (err) return { ok: false, error: err };
+  if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+    return { ok: false, error: 'Botun bu sunucuda "Kanalları Yönet" yetkisi yok.' };
+  }
+  const list = Array.isArray(items) ? items : [];
+  let updated = 0;
+  let skipped = 0;
+  const failed = [];
+  for (const item of list) {
+    const ch = guild.channels.cache.get(item.channelId);
+    if (!ch) {
+      failed.push({ id: item.channelId, name: item.channelId, error: 'Kanal bulunamadı' });
+      continue;
+    }
+    const clean = String(item.name || '').trim().slice(0, 100);
+    if (!clean) {
+      failed.push({ id: ch.id, name: ch.name, error: 'Yeni isim boş olamaz' });
+      continue;
+    }
+    if (clean === ch.name) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await ch.setName(clean, `${actor.user.tag}: toplu isim düzenleme`);
+      updated += 1;
+    } catch (e) {
+      failed.push({ id: ch.id, name: ch.name, error: e.message });
+    }
+  }
+  return { ok: true, updated, skipped, failed };
+}
+
+async function bulkDeleteChannels(guild, actor, channelIds, deleteChildren = false) {
+  const err = requirePerm(actor, PermissionsBitField.Flags.ManageChannels, 'Kanal yönetme');
+  if (err) return { ok: false, error: err };
+  if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+    return { ok: false, error: 'Botun bu sunucuda "Kanalları Yönet" yetkisi yok.' };
+  }
+  const idSet = new Set((Array.isArray(channelIds) ? channelIds : []).map(String));
+  if (deleteChildren) {
+    for (const ch of guild.channels.cache.values()) {
+      if (ch.parentId && idSet.has(ch.parentId)) idSet.add(ch.id);
+    }
+  }
+  // Önce alt kanalları, en son kategorileri sil
+  const targets = [...idSet]
+    .map((id) => guild.channels.cache.get(id))
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aCat = a.type === ChannelType.GuildCategory ? 1 : 0;
+      const bCat = b.type === ChannelType.GuildCategory ? 1 : 0;
+      return aCat - bCat;
+    });
+
+  let deleted = 0;
+  const failed = [];
+  for (const ch of targets) {
+    const name = ch.name;
+    try {
+      await ch.delete(`${actor.user.tag}: toplu silme`);
+      deleted += 1;
+    } catch (e) {
+      failed.push({ id: ch.id, name, error: e.message });
+    }
+  }
+  return { ok: true, deleted, failed };
+}
+
 // ---------------------------------------------------------------- ROL İŞLEMLERİ
 async function addRole(guild, actor, userId, roleId) {
   const err = requirePerm(actor, PermissionsBitField.Flags.ManageRoles, 'Rol yönetme');
@@ -412,6 +480,8 @@ module.exports = {
   setChannelTopic,
   deleteChannel,
   createChannel,
+  bulkRenameChannels,
+  bulkDeleteChannels,
   channelTypeName,
   addRole,
   removeRole,

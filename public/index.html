@@ -21,8 +21,8 @@
       Discord ile Giriş Yap
     </a>
     <div class="login-note">
-      Giriş yaptığında <b>yalnızca senin Discord yetkilerin</b> geçerli olur.<br />
-      Yöneticisi olmadığın sunucularda işlem yapamazsın.
+      🔒 <b>Yalnızca kurucuya özel yönetim paneli.</b><br />
+      Başka Discord hesaplarının girişi otomatik olarak reddedilir.
     </div>
   </div>
 </div>
@@ -113,12 +113,30 @@
       <!-- ---------- CHANNELS ---------- -->
       <section class="section" id="sec-channels">
         <div class="toolbar">
+          <input class="input search" id="channelSearch" placeholder="🔍 Kanal veya kategori ara…" oninput="renderChannels()" />
           <button class="btn btn-primary" onclick="openChannelCreate()">+ Kanal Oluştur</button>
           <button class="btn" onclick="loadChannels()">↻ Yenile</button>
         </div>
 
+        <div class="card bulk-bar" style="margin-bottom:14px;padding:12px 14px">
+          <div class="bulk-select-row">
+            <span class="hint" style="margin:0;font-weight:600;color:var(--text)">Hızlı seçim:</span>
+            <button class="chip" onclick="selectChannelsBy('all')">☑ Tümü</button>
+            <button class="chip" onclick="selectChannelsBy('visible')">👁 Görünenler</button>
+            <button class="chip" onclick="selectChannelsBy('voice')">🔊 Ses kanalları</button>
+            <button class="chip" onclick="selectChannelsBy('text')">📝 Metin kanalları</button>
+            <button class="chip" onclick="selectChannelsBy('category')">📂 Kategoriler</button>
+            <button class="chip" onclick="selectChannelsBy('none')">☐ Temizle</button>
+          </div>
+          <div class="bulk-act-row" id="bulkActions" style="display:none">
+            <span class="badge" id="bulkCount">0 seçili</span>
+            <button class="btn btn-sm btn-primary" onclick="openBulkRename()">✏️ Seçilenlerin Adını Değiştir</button>
+            <button class="btn btn-sm btn-danger" onclick="openBulkDelete()">🗑 Seçilenleri Sil</button>
+          </div>
+        </div>
+
         <div class="card">
-          <h3>📁 Kanallar</h3>
+          <h3>📁 Kanallar <span class="badge" id="channelCount">0</span></h3>
           <div id="channelList"><div class="empty">Yükleniyor…</div></div>
         </div>
 
