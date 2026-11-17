@@ -12,6 +12,7 @@ const {
   ActivityType,
   SlashCommandBuilder
 } = require('discord.js');
+const path = require('path');
 
 const settings = require('./settings');
 const mod = require('./moderation');
@@ -119,11 +120,28 @@ function parseAmount(input, balance) {
   return Number.isFinite(n) ? n : null;
 }
 
-const MEDIA = {
-  slot: process.env.GIF_SLOT || 'https://media.giphy.com/media/26tOZ42Mg6pbTUPHW/giphy.gif',
-  coin: process.env.GIF_COIN || 'https://media.giphy.com/media/3o7btPCcdNniyf0ArS/giphy.gif',
-  dice: process.env.GIF_DICE || 'https://media.giphy.com/media/HRUboYorHt6sloh8cv/giphy.gif'
+const GAME_MEDIA = {
+  slot: { name: 'lores-slot.gif', path: path.join(__dirname, '../public/assets/games/lores-slot.gif') },
+  coin: { name: 'lores-coin.gif', path: path.join(__dirname, '../public/assets/games/lores-coin.gif') },
+  dice: { name: 'lores-dice.gif', path: path.join(__dirname, '../public/assets/games/lores-dice.gif') }
 };
+
+function gameFile(type) {
+  const media = GAME_MEDIA[type];
+  return { attachment: media.path, name: media.name };
+}
+
+function gameEmbed(ctx, { title, description, color, type, fields = [] }) {
+  return new EmbedBuilder()
+    .setColor(color)
+    .setAuthor({ name: 'LORES • NEON CASINO', iconURL: ctx.client.user.displayAvatarURL() })
+    .setTitle(title)
+    .setDescription(description)
+    .addFields(fields)
+    .setImage(`attachment://${GAME_MEDIA[type].name}`)
+    .setFooter({ text: `LORES • ${ctx.guild.name}`, iconURL: ctx.guild.iconURL() || ctx.client.user.displayAvatarURL() })
+    .setTimestamp();
+}
 
 function resultEmbed({ title, description, color = COLOR.main, footer, image, thumbnail }) {
   const embed = new EmbedBuilder().setColor(color).setTitle(title).setDescription(description).setTimestamp();
@@ -340,20 +358,20 @@ cmd(['slot', 'slots', 'kumar'], 'Slot makinesi', '/slot 100', async (ctx) => {
   const spin = games.spin(bet);
   const balance = games.settle(ctx.guild.id, ctx.author.id, bet, spin.payout, spin.multiplier > 0);
   const line = spin.reels.join(' | ');
+  const won = spin.multiplier > 0;
   await ctx.message.reply({
-    embeds: [
-      resultEmbed({
-        title: spin.multiplier > 0 ? '🎰 Kazandın!' : '🎰 Kaybettin',
-        description:
-          `# ${line}\n\n` +
-          (spin.multiplier > 0
-            ? `**${bet}** coin bahis → **${spin.payout}** coin (x${spin.multiplier}) kazandın!`
-            : `**${bet}** coin kaybettin.`),
-        color: spin.multiplier > 0 ? COLOR.ok : COLOR.err,
-        footer: `Bakiye: ${balance} coin • ${ctx.author.username} tarafından oynandı`,
-        image: MEDIA.slot
-      })
-    ]
+    embeds: [gameEmbed(ctx, {
+      type: 'slot',
+      title: won ? '🎰 JACKPOT • Kazandın!' : '🎰 Tur tamamlandı',
+      description: `## ┃ ${line} ┃\n${won ? `✨ **x${spin.multiplier} çarpan!** Neon kasa ödeme yaptı.` : '💨 Bu tur kasa kazandı. Bir sonraki dönüş senin olabilir!'}`,
+      color: won ? COLOR.gold : COLOR.err,
+      fields: [
+        { name: '💳 Bahis', value: `**${bet}** coin`, inline: true },
+        { name: won ? '💰 Ödeme' : '📉 Kayıp', value: won ? `**+${spin.payout}** coin` : `**-${bet}** coin`, inline: true },
+        { name: '👛 Yeni Bakiye', value: `**${balance}** coin`, inline: true }
+      ]
+    })],
+    files: [gameFile('slot')]
   });
 });
 
@@ -365,15 +383,18 @@ cmd(['yazıtura', 'yazitura', 'cf'], 'Yazı tura', '/yazıtura 100 yazı', async
   const res = games.coinflip(ctx.guild.id, ctx.author.id, bet, finish);
   if (res.error) return ctx.message.reply(`⛔ ${res.error}`);
   await ctx.message.reply({
-    embeds: [
-      resultEmbed({
-        title: res.won ? '🪙 Kazandın!' : '🪙 Kaybettin',
-        description: `Sonuç: **${res.result}**\n${res.won ? `+${res.payout} coin kazandın!` : `-${res.bet} coin.`}`,
-        color: res.won ? COLOR.ok : COLOR.err,
-        footer: `Bakiye: ${res.balance} coin • ${ctx.author.username} tarafından oynandı`,
-        image: MEDIA.coin
-      })
-    ]
+    embeds: [gameEmbed(ctx, {
+      type: 'coin',
+      title: res.won ? '🪙 Doğru tahmin • Kazandın!' : '🪙 Para kararını verdi',
+      description: `## Sonuç: ${res.result.toLocaleUpperCase('tr-TR')}\n${res.won ? '✨ Tahminin kusursuzdu; bahis ikiye katlandı!' : '🌙 Bu kez diğer yüz geldi.'}`,
+      color: res.won ? COLOR.gold : COLOR.err,
+      fields: [
+        { name: '🎯 Seçimin', value: `**${finish.toLocaleUpperCase('tr-TR')}**`, inline: true },
+        { name: res.won ? '💰 Ödeme' : '📉 Kayıp', value: res.won ? `**+${res.payout}** coin` : `**-${res.bet}** coin`, inline: true },
+        { name: '👛 Bakiye', value: `**${res.balance}** coin`, inline: true }
+      ]
+    })],
+    files: [gameFile('coin')]
   });
 });
 
@@ -383,15 +404,18 @@ cmd(['zar', 'dice'], 'Zar tahmini', '/zar 3 50', async (ctx) => {
   const res = games.dice(ctx.guild.id, ctx.author.id, bet, guess);
   if (res.error) return ctx.message.reply(`⛔ ${res.error}`);
   await ctx.message.reply({
-    embeds: [
-      resultEmbed({
-        title: res.won ? '🎲 Tam isabet!' : '🎲 Tutmadı',
-        description: `Zar: **${res.result}**\n${res.won ? `x6 → **+${res.payout}** coin!` : `-${res.bet} coin.`}`,
-        color: res.won ? COLOR.ok : COLOR.err,
-        footer: `Bakiye: ${res.balance} coin • ${ctx.author.username} tarafından oynandı`,
-        image: MEDIA.dice
-      })
-    ]
+    embeds: [gameEmbed(ctx, {
+      type: 'dice',
+      title: res.won ? '🎲 TAM İSABET • x6!' : '🎲 Zarlar durdu',
+      description: `## Zar sonucu: ${res.result}\n${res.won ? '⚡ Efsane tahmin! Kasa x6 ödeme yaptı.' : `Tahminin **${guess}** idi; şans bu tur farklı yuvarlandı.`}`,
+      color: res.won ? COLOR.gold : COLOR.err,
+      fields: [
+        { name: '🎯 Tahmin', value: `**${guess}**`, inline: true },
+        { name: res.won ? '💰 Ödeme' : '📉 Kayıp', value: res.won ? `**+${res.payout}** coin` : `**-${res.bet}** coin`, inline: true },
+        { name: '👛 Bakiye', value: `**${res.balance}** coin`, inline: true }
+      ]
+    })],
+    files: [gameFile('dice')]
   });
 });
 
