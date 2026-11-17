@@ -783,7 +783,7 @@ function renderChannels() {
     el('div', { class: 'channel-row' }, [
       makeCheck(ch.id),
       el('span', { class: 'ico', text: CHANNEL_ICONS[ch.type] || '❔' }),
-      el('div', { class: 'nm', html: `${esc(ch.name)}<small>${ch.type}${ch.topic ? ' · ' + esc(ch.topic.slice(0, 60)) : ''}</small>` }),
+      el('div', { class: 'nm', html: `${esc(ch.name)}${ch.locked ? ' <span class="tag warnc">KİLİTLİ</span>' : ''}<small>${ch.type}${ch.topic ? ' · ' + esc(ch.topic.slice(0, 60)) : ''}</small>` }),
       el('div', { class: 'acts' }, [
         el('button', { class: 'btn btn-sm', text: '✏️ Düzenle', onclick: () => editChannel(ch) }),
         el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Sil', onclick: () => deleteChannel(ch) })
@@ -1044,11 +1044,48 @@ function editChannel(ch) {
     body.push(el('label', { class: 'f', text: 'Kanal konusu' }));
     body.push(el('textarea', { class: 'input', id: 'chTopic', placeholder: 'Kanal açıklaması…', text: ch.topic || '' }));
   }
+  if (ch.type === 'text' || ch.type === 'announcement') {
+    body.push(el('div', { class: 'channel-control-box' }, [
+      el('div', { class: 'channel-control-head' }, [
+        el('div', {}, [el('b', { text: 'Kanala mesaj gönder' }), el('span', { text: 'Mesaj bot hesabından gönderilir.' })]),
+        el('span', { class: `lock-status ${ch.locked ? 'locked' : ''}`, text: ch.locked ? 'Yazmaya kapalı' : 'Yazmaya açık' })
+      ]),
+      el('textarea', { class: 'input', id: 'channelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' }),
+      el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions' }), el('span', { text: 'Kullanıcı ve rol etiketlerine izin ver' })]),
+      el('div', { class: 'row' }, [
+        el('button', { class: 'btn btn-primary', text: 'Mesajı gönder', onclick: () => sendChannelMessage(ch) }),
+        el('button', { class: `btn ${ch.locked ? 'btn-ok' : 'btn-danger'}`, text: ch.locked ? 'Kanal kilidini aç' : 'Kanalı kilitle', onclick: () => toggleChannelLock(ch) })
+      ])
+    ]));
+  }
   body.push(el('div', { class: 'row', style: 'margin-top:14px' }, [
     el('button', { class: 'btn btn-primary', text: '💾 Kaydet', onclick: () => saveChannel(ch) }),
     el('button', { class: 'btn btn-danger', text: '🗑 Kanalı Sil', onclick: () => { closeModal(); deleteChannel(ch); } })
   ]));
   openModal(body);
+}
+
+async function sendChannelMessage(ch) {
+  const input = $('#channelMessage');
+  const content = (input?.value || '').trim();
+  if (!content) return toast('Gönderilecek mesajı yaz', 'warn');
+  try {
+    const r = await api('/api/channels/message', { method: 'POST', body: { channelId: ch.id, content, allowMentions: Boolean($('#channelAllowMentions')?.checked) } });
+    if (!r.ok) return toast(r.error || 'Mesaj gönderilemedi', 'err');
+    input.value = '';
+    toast('Mesaj kanala gönderildi', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+async function toggleChannelLock(ch) {
+  try {
+    const r = await api('/api/channels/lock', { method: 'POST', body: { channelId: ch.id, locked: !ch.locked } });
+    if (!r.ok) return toast(r.error || 'Kanal güncellenemedi', 'err');
+    ch.locked = r.locked;
+    toast(r.message, 'ok');
+    editChannel(ch);
+    loadChannels();
+  } catch (err) { toast(err.message, 'err'); }
 }
 
 async function saveChannel(ch) {

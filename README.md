@@ -16,6 +16,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 **Kanal & kategori yönetimi (tekli ve toplu)**
 - Kategoriye göre gruplanmış metin / ses / duyuru kanalları + arama
 - Tekli kanal veya kategori **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
+- Metin/duyuru kanalının düzenleme ekranından bot hesabıyla mesaj gönderme, kullanıcı/rol etiketlerini kontrollü açma ve `@everyone` yazma iznini kilitleme/kaldırma
 - **Toplu oluşturma:** satır başına bir ad girerek tek seferde 50 metin/ses/duyuru kanalı veya kategori oluştur
 - **Toplu seçim:** hızlı seçim (tümü, tüm ses kanalları, tüm metin kanalları, tüm kategoriler, kategori grubu)
 - **Toplu düzenleme:** başına/sonuna ekle (`yakında-`), bul & değiştir, hepsini aynı ad yap (`yakında-{n}`), canlı önizleme ve seçili metin kanallarının konusunu birlikte güncelleme
