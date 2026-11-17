@@ -649,11 +649,15 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
       throw new Error('Anonim mesaj için botun bu kanalda `Webhookları Yönet` yetkisi olmalı.');
     }
     const hooks = await channel.fetchWebhooks();
-    let hook = hooks.find((w) => w.owner?.id === botState.client.user.id && w.name === 'LORES Anonymous');
-    if (!hook) {
-      hook = await channel.createWebhook({ name: 'LORES Anonymous', reason: `${actor.user.username}: anonim panel mesajı` });
+    let hook = hooks.find((w) => w.owner?.id === botState.client.user.id && ['Anonim Modu', 'LORES Anonymous'].includes(w.name));
+    // Önceki sürümden kalan markalı webhook'u sessizce nötr ada taşı.
+    if (hook?.name === 'LORES Anonymous') {
+      hook = await hook.edit({ name: 'Anonim Modu', reason: 'Anonim mesaj modu güncellemesi' });
     }
-    sent = await hook.send({ content, username: 'Anonim', allowedMentions: { parse } });
+    if (!hook) {
+      hook = await channel.createWebhook({ name: 'Anonim Modu', reason: 'Anonim mesaj modu' });
+    }
+    sent = await hook.send({ content, username: 'Anonim Modu', allowedMentions: { parse } });
   } else {
     sent = await channel.send({ content, allowedMentions: { parse } });
   }
