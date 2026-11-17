@@ -18,7 +18,36 @@ const { botState, startBot } = require('./src/bot');
 const { db } = require('./src/store');
 
 const app = express();
+const anonymousWebhookCache = new Map();
 const PORT = process.env.PORT || 10000;
+
+async function getAnonymousWebhook(channel) {
+  const cached = anonymousWebhookCache.get(String(channel.id));
+  if (cached) return cached;
+
+  const hooks = await channel.fetchWebhooks();
+  let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
+  if (hook && hook.name !== 'Anonymous') {
+    hook = await hook.edit({ name: 'Anonymous', reason: 'Anonymous mesaj modu güncellemesi' });
+  }
+  if (!hook) {
+    hook = await channel.createWebhook({ name: 'Anonymous', reason: 'Anonymous mesaj modu' });
+  }
+  anonymousWebhookCache.set(String(channel.id), hook);
+  return hook;
+}
+
+async function sendAnonymousMessage(channel, payload) {
+  let hook = await getAnonymousWebhook(channel);
+  try {
+    return await hook.send(payload);
+  } catch (err) {
+    if (Number(err.code) !== 10015) throw err;
+    anonymousWebhookCache.delete(String(channel.id));
+    hook = await getAnonymousWebhook(channel);
+    return hook.send(payload);
+  }
+}
 const CLIENT_ID = (process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '').trim();
 const ADMIN_USER = (process.env.ADMIN_USER || process.env.PANEL_USER || '').trim();
 const ADMIN_PASS = (process.env.ADMIN_PASS || process.env.PANEL_PASS || '').trim();
@@ -648,16 +677,7 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
     if (!botPerms.has(PermissionsBitField.Flags.ManageWebhooks)) {
       throw new Error('Anonim mesaj için botun bu kanalda `Webhookları Yönet` yetkisi olmalı.');
     }
-    const hooks = await channel.fetchWebhooks();
-    let hook = hooks.find((w) => w.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(w.name));
-    // Önceki sürümlerden kalan webhook'u güncel, markasız ada taşı.
-    if (hook && hook.name !== 'Anonymous') {
-      hook = await hook.edit({ name: 'Anonymous', reason: 'Anonymous mesaj modu güncellemesi' });
-    }
-    if (!hook) {
-      hook = await channel.createWebhook({ name: 'Anonymous', reason: 'Anonymous mesaj modu' });
-    }
-    sent = await hook.send({ content, username: 'Anonymous', allowedMentions: { parse } });
+    sent = await sendAnonymousMessage(channel, { content, username: 'Anonymous', allowedMentions: { parse } });
   } else {
     sent = await channel.send({ content, allowedMentions: { parse } });
   }
