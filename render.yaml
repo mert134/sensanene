@@ -13,9 +13,9 @@ services:
         value: 20.11.0
       - key: DISCORD_TOKEN
         sync: false
-      - key: CLIENT_ID
+      - key: ADMIN_USER
         sync: false
-      - key: CLIENT_SECRET
+      - key: ADMIN_PASS
         sync: false
       - key: PUBLIC_URL
         sync: false

@@ -77,6 +77,12 @@ function router() {
     next();
   });
 
+  r.post('/auth/login', (req, res) => {
+    req.session.user = DEMO_USER;
+    req.session.guildId = GUILD.id;
+    res.json({ ok: true, user: DEMO_USER });
+  });
+
   r.get('/auth/login', (req, res) => {
     req.session.user = DEMO_USER;
     req.session.guildId = GUILD.id;
@@ -84,7 +90,7 @@ function router() {
   });
 
   r.get('/api/me', (req, res) =>
-    res.json({ user: DEMO_USER, configured: true, botReady: true, botTag: 'DemoBot#0001', demo: true })
+    res.json({ user: DEMO_USER, authMode: 'password', configured: true, botReady: true, botTag: 'DemoBot#0001', demo: true })
   );
 
   r.get('/api/guilds', (req, res) =>

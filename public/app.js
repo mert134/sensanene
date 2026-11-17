@@ -94,33 +94,49 @@ function copyText(txt, okMsg = 'Kopyalandı') {
   navigator.clipboard.writeText(txt).then(() => toast(okMsg, 'ok')).catch(() => toast('Kopyalanamadı', 'err'));
 }
 
-const HATA_TEXT = {
-  yetkisiz: 'Bu kontrol paneli sadece kurucuya özeldir. Hesabının erişim izni yok.',
-  'kurucu-belirsiz': 'Kurucu kimliği doğrulanamadı. Render > Environment bölümüne OWNER_ID olarak kendi Discord ID\'ni ekleyebilirsin.'
-};
+function togglePass() {
+  const inp = $('#loginPass');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  const btn = $('#loginBtn');
+  const username = ($('#loginUser')?.value || '').trim();
+  const password = $('#loginPass')?.value || '';
+  if (!username || !password) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Kontrol ediliyor…'; }
+  try {
+    await api('/auth/login', { method: 'POST', body: { username, password } });
+    $('#loginWarn').innerHTML = '';
+    if ($('#loginPass')) $('#loginPass').value = '';
+    await boot();
+  } catch (err) {
+    renderLogin(state.me, err.message || 'Giriş başarısız.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔓 Giriş Yap'; }
+  }
+}
 
 function renderLogin(me, hata = '') {
   showLogin();
   const box = $('#loginWarn');
   if (!box) return;
-  const errText = HATA_TEXT[hata] || hata;
-  const errHtml = errText
-    ? `<div class="warn-box" style="background:rgba(237,66,69,.14);border-color:rgba(237,66,69,.45);color:#ff9c9e"><b>⛔ Giriş reddedildi:</b> ${esc(errText)}</div>`
-    : '';
-  const local = me && /localhost|127\.0\.0\.1/i.test(me.redirectUri || '');
-  const showSetupNote = (hata && hata !== 'yetkisiz') || local;
-  box.innerHTML = errHtml + (showSetupNote && me && me.redirectUri
-    ? `<div class="warn-box" style="background:rgba(88,101,242,.12);border-color:rgba(88,101,242,.4);color:#c3caff">
-        <b>Discord OAuth2 Yönlendirme Adresi:</b>
-        <div style="display:flex;align-items:center;gap:6px;margin:8px 0;flex-wrap:wrap">
-          <code style="word-break:break-all;flex:1">${esc(me.redirectUri)}</code>
-          <button type="button" class="btn btn-sm" id="copyRedirBtn">📋 Kopyala</button>
-        </div>
-        ${local ? `<div style="margin-top:4px;color:#ffc966">⚠️ Panel adresi yerel görünüyor. Render'da <code>PUBLIC_URL</code> ayarla.</div>` : ''}
-      </div>`
-    : '');
-  const btn = $('#copyRedirBtn');
-  if (btn && me && me.redirectUri) btn.onclick = () => copyText(me.redirectUri, 'Redirect adresi kopyalandı!');
+  let html = '';
+  if (hata) {
+    html += `<div class="warn-box" style="background:rgba(237,66,69,.14);border-color:rgba(237,66,69,.45);color:#ff9c9e"><b>⛔</b> ${esc(hata)}</div>`;
+  }
+  if (me && !me.configured) {
+    const eksikler = [];
+    if (me.missingAuth) eksikler.push('<code>ADMIN_USER</code> ve <code>ADMIN_PASS</code>');
+    if (me.missingToken) eksikler.push('<code>DISCORD_TOKEN</code>');
+    html += `<div class="warn-box">
+      <b>Kurulum tamamlanmadı.</b><br />
+      Render &gt; Environment bölümüne ekle: ${eksikler.join(', ')}
+    </div>`;
+  }
+  box.innerHTML = html;
 }
 
 function showApp() {
@@ -129,10 +145,6 @@ function showApp() {
 }
 
 async function boot() {
-  const params = new URLSearchParams(location.search);
-  const hata = params.get('hata');
-  if (hata) history.replaceState({}, '', '/');
-
   let me;
   try {
     me = await api('/api/me');
@@ -141,23 +153,7 @@ async function boot() {
   }
   state.me = me;
 
-  if (!me.configured) {
-    showLogin();
-    const missing = (me.setup ? me.setup.checks.filter((c) => !c.ok) : []).map((c) => `<li>${esc(c.title)} — <span style="opacity:.75">${esc(c.hint)}</span></li>`).join('');
-    $('#loginWarn').innerHTML = `<div class="warn-box">
-      <b>Kurulum tamamlanmadı.</b><br />
-      Render &gt; Environment bölümüne şu değişkenleri ekle:<br />
-      <code>DISCORD_TOKEN</code>, <code>CLIENT_ID</code>, <code>CLIENT_SECRET</code>,<br />
-      <code>SESSION_SECRET</code>${missing ? `<ul style="margin:10px 0 0 16px;padding:0;font-size:12.5px">${missing}</ul>` : ''}
-      <div style="margin-top:10px"><a href="/setup">🔧 Kurulum teşhisini aç</a></div>
-    </div>`;
-    return;
-  }
-
-  if (!me.user || hata) {
-    if (hata) toast('Giriş reddedildi: ' + (HATA_TEXT[hata] || hata), 'err');
-    return renderLogin(me, hata);
-  }
+  if (!me.user) return renderLogin(me);
 
   showApp();
   $('#userPill').textContent = me.user.globalName || me.user.username;

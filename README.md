@@ -19,8 +19,8 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - **Toplu isim değiştirme:** başına/sonuna ekle (`yakında-`), bul & değiştir, hepsini aynı ad yap (`yakında-{n}`), canlı önizleme
 - **Toplu silme:** seçilen onlarca kanalı/kategoriyi tek seferde kaldır
 
-**Erişim güvenliği (yalnızca kurucu)**
-- Panel **sadece bot kurucusuna özeldir** (`OWNER_ID` veya Discord Developer Portal'daki uygulama sahibi otomatik algılanır); başka hesapların girişi otomatik reddedilir
+**Erişim güvenliği (kullanıcı adı & şifre kilidi)**
+- Panel **kullanıcı adı ve şifre** (`ADMIN_USER`, `ADMIN_PASS`) ile korunur; başka kimse giriş yapamaz, bot sunucularını göremez
 - Botun bulunduğu **tüm sunucular** tek panelden incelenip yönetilebilir (Discord tarafındaki bot yetkileri sınırında)
 
 **Rol yönetimi**
@@ -40,35 +40,29 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 1. **Discord Developer Portal** → [Applications](https://discord.com/developers/applications) → *New Application*
 2. **Bot** sekmesi → *Reset Token* → tokeni kopyala
    - **Privileged Gateway Intents** bölümünde **SERVER MEMBERS INTENT** ve **MESSAGE CONTENT INTENT**'i aç (zorunlu)
-3. **OAuth2** sekmesi → *Client ID* ve *Client Secret*'ı kopyala
-4. **OAuth2 → Redirects** kısmına şunu ekle:
-   ```
-   https://SERVIS-ADIN.onrender.com/auth/callback
-   ```
-5. Render'da **New → Web Service** → bu GitHub repoyu seç
+3. Render'da **New → Web Service** → bu GitHub repoyu seç
    - **Build Command:** `npm install`
    - **Start Command:** `npm start`
    - (Repodaki `render.yaml` ile Blueprint olarak da oluşturabilirsin)
-6. **Environment** değişkenleri:
+4. **Environment** değişkenleri:
 
 | Değişken | Değer |
 |---|---|
 | `DISCORD_TOKEN` | Bot tokeni |
-| `CLIENT_ID` | Uygulama (client) ID |
-| `CLIENT_SECRET` | OAuth2 client secret |
-| `PUBLIC_URL` | `https://SERVIS-ADIN.onrender.com` (sonunda `/` yok) |
-| `SESSION_SECRET` | Rastgele uzun bir yazı |
-| `OWNER_ID` | *(Opsiyonel)* Kurucu Discord kullanıcı ID (boşsa uygulama sahibi otomatik algılanır) |
+| `ADMIN_USER` | Panele giriş kullanıcı adın |
+| `ADMIN_PASS` | Panele giriş şifren |
+| `PUBLIC_URL` | *(Opsiyonel)* `https://site-adin.onrender.com` |
+| `SESSION_SECRET` | *(Opsiyonel)* Rastgele uzun bir yazı |
 | `DEMO_MODE` | `0` (paneli Discord'suz denemek için `1`) |
 
-7. Botu sunucuya ekle: panelde **Ayarlar → 🔗 Bot Davet Linkini Kopyala** (yönetici yetkisiyle davet eder)
+5. Botu sunucuya ekle: panelde giriş yaptıktan sonra **Ayarlar → 🔗 Bot Davet Linkini Kopyala** (yönetici yetkisiyle davet eder)
 
 ## ⚠️ Önemli notlar
 
 - **Bot rolü en üstte olmalı.** Discord'da yönetilecek üyelerin rolü botun rolünden düşük olmalı; aksi halde bot işlem yapamaz (panel bunu hata mesajıyla söyler).
 - **Render ücretsiz planı 15 dk trafik olmazsa uyur.** Uyku sırasında bot da çevrimdışı olur. Çözüm: ücretli plan ya da [UptimeRobot](https://uptimerobot.com) ile `/health` adresine 5 dakikalık ping.
 - **Veri kalıcılığı:** JSON verisi (`data/db.json`) diske yazılır. Render ücretsiz planda disk kalıcı değildir; kalıcı olsun istersen Render'da **Disk** ekleyip `DATA_DIR=/data` ver (Blueprint'te hazır).
-- Panel oturumu **yalnızca kurucu hesabına** açıktır; başka kullanıcıların girişi reddedilir. Discord sunucusundaki `!ban`, `!kick` gibi sohbet komutlarında ise her kullanıcının kendi Discord rol/yetki sınırları geçerlidir.
+- Panel oturumu **`ADMIN_USER` ve `ADMIN_PASS` kullanıcı adı/şifre girişi** ile korunur; hatalı denemelere karşı geçici kilitleme bulunur. Discord sunucusundaki `!ban`, `!kick` gibi sohbet komutlarında ise her kullanıcının kendi Discord rol/yetki sınırları geçerlidir.
 
 ## 🧪 Yerel çalıştırma
 

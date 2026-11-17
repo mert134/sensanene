@@ -6,8 +6,9 @@
  */
 const express = require('express');
 const cookieSession = require('cookie-session');
+const crypto = require('crypto');
 const path = require('path');
-const { PermissionsBitField, OAuth2Scopes } = require('discord.js');
+const { PermissionsBitField } = require('discord.js');
 
 const settings = require('./src/settings');
 const mod = require('./src/moderation');
@@ -19,40 +20,65 @@ const { db } = require('./src/store');
 const app = express();
 const PORT = process.env.PORT || 10000;
 const CLIENT_ID = (process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '').trim();
-const CLIENT_SECRET = (process.env.CLIENT_SECRET || process.env.DISCORD_CLIENT_SECRET || '').trim();
-
-/**
- * Panel adresini bul. Discord OAuth2 "redirect_uri" birebir eşleşme istediği için
- * PUBLIC_URL yanlış/boşsa Render'ın kendi verdiği RENDER_EXTERNAL_URL'e düşeriz.
- * Böylece "Geçersiz OAuth2 redirect_url" hatası en aza iner.
- */
-function normalizeBaseUrl(raw) {
-  let u = String(raw || '').trim();
-  if (!u) return '';
-  u = u.replace(/\/auth\/callback\/?$/i, '').replace(/\/+$/, '');
-  if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
-  return u;
-}
+const ADMIN_USER = (process.env.ADMIN_USER || process.env.PANEL_USER || '').trim();
+const ADMIN_PASS = (process.env.ADMIN_PASS || process.env.PANEL_PASS || '').trim();
 
 function detectBaseUrl(port) {
-  const explicit = normalizeBaseUrl(process.env.PUBLIC_URL);
-  const renderUrl = normalizeBaseUrl(process.env.RENDER_EXTERNAL_URL);
-  const renderHost = String(process.env.RENDER_EXTERNAL_HOSTNAME || '').trim().replace(/\/+$/, '');
-  const isBadExplicit = (u) => /localhost|127\.0\.0\.1|dashboard\.render\.com|servis-adin/i.test(u);
-
-  if (explicit && !isBadExplicit(explicit)) return { url: explicit, source: 'PUBLIC_URL' };
-  if (renderUrl) return { url: renderUrl, source: 'RENDER_EXTERNAL_URL (otomatik)' };
-  if (renderHost) return { url: `https://${renderHost}`, source: 'RENDER_EXTERNAL_HOSTNAME (otomatik)' };
-  if (explicit) return { url: explicit, source: 'PUBLIC_URL (yerel)' };
-  return { url: `http://localhost:${port}`, source: 'varsayılan (yerel)' };
+  const clean = (v) => String(v || '').trim().replace(/\/+$/, '');
+  const explicit = clean(process.env.PUBLIC_URL);
+  const renderUrl = clean(process.env.RENDER_EXTERNAL_URL);
+  const renderHost = clean(process.env.RENDER_EXTERNAL_HOSTNAME);
+  if (explicit && !/localhost|127\.0\.0\.1/i.test(explicit)) return explicit;
+  if (renderUrl) return renderUrl;
+  if (renderHost) return `https://${renderHost}`;
+  return explicit || `http://localhost:${port}`;
 }
 
-const base = detectBaseUrl(PORT);
-const BASE_URL = base.url;
-const BASE_URL_SOURCE = base.source;
-const REDIRECT_URI = `${BASE_URL}/auth/callback`;
-const SESSION_SECRET = (process.env.SESSION_SECRET || 'degistir-beni-' + CLIENT_ID).trim();
-const HAS_RENDER = Boolean(process.env.RENDER_EXTERNAL_URL || process.env.RENDER_EXTERNAL_HOSTNAME);
+const BASE_URL = detectBaseUrl(PORT);
+const SESSION_SECRET = (
+  process.env.SESSION_SECRET ||
+  crypto.createHash('sha256').update(`${ADMIN_USER}:${ADMIN_PASS}:${process.env.DISCORD_TOKEN || 'panel'}`).digest('hex')
+).trim();
+
+const CRED_HASH =
+  ADMIN_USER && ADMIN_PASS
+    ? crypto.createHash('sha256').update(`${ADMIN_USER}\0${ADMIN_PASS}`).digest('hex').slice(0, 16)
+    : '';
+
+function safeEqual(a, b) {
+  const h1 = crypto.createHash('sha256').update(String(a || '')).digest();
+  const h2 = crypto.createHash('sha256').update(String(b || '')).digest();
+  return crypto.timingSafeEqual(h1, h2);
+}
+
+// Hatalı şifre denemelerine karşı basit IP koruması (15 dk içinde en fazla 8 deneme)
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 8;
+const LOCK_WINDOW_MS = 15 * 60 * 1000;
+
+function checkLoginLimit(ip) {
+  const rec = loginAttempts.get(ip);
+  if (!rec) return null;
+  if (Date.now() > rec.resetAt) {
+    loginAttempts.delete(ip);
+    return null;
+  }
+  if (rec.count >= MAX_ATTEMPTS) {
+    const mins = Math.max(1, Math.ceil((rec.resetAt - Date.now()) / 60000));
+    return `Çok fazla hatalı deneme. ${mins} dakika sonra tekrar dene.`;
+  }
+  return null;
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  const rec = loginAttempts.get(ip);
+  if (!rec || now > rec.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOCK_WINDOW_MS });
+  } else {
+    rec.count += 1;
+  }
+}
 
 app.use(express.json());
 app.set('trust proxy', 1);
@@ -62,7 +88,6 @@ app.use(
     secret: SESSION_SECRET,
     maxAge: 1000 * 60 * 60 * 24 * 7,
     sameSite: 'lax',
-    secure: BASE_URL.startsWith('https'),
     httpOnly: true
   })
 );
@@ -75,63 +100,11 @@ if (DEMO_MODE) {
   app.use(require('./src/demo').router());
 }
 
-// ---------------------------------------------------------------- KURUCU KİLİDİ
-const EXPLICIT_OWNER_IDS = new Set(
-  String(process.env.OWNER_ID || process.env.OWNER_IDS || '')
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean)
-);
-let cachedAppOwnerIds = null;
-
-/**
- * Yalnızca panel kurucusunun (OWNER_ID veya Discord uygulama sahibi) giriş yapmasına izin verir.
- * OWNER_ID girilmediyse Discord API (/oauth2/applications/@me) üzerinden botun sahibini otomatik bulur.
- */
-async function resolveOwnerIds() {
-  if (EXPLICIT_OWNER_IDS.size > 0) return EXPLICIT_OWNER_IDS;
-  if (cachedAppOwnerIds && cachedAppOwnerIds.size > 0) return cachedAppOwnerIds;
-
-  const ids = new Set();
-  const c = botState.client;
-  if (c && c.application) {
-    try {
-      const appInfo = await c.application.fetch();
-      if (appInfo.owner) {
-        if (appInfo.owner.members) {
-          for (const m of appInfo.owner.members.values()) ids.add(m.id);
-        } else if (appInfo.owner.id) {
-          ids.add(appInfo.owner.id);
-        }
-      }
-    } catch {}
-  }
-  if (!ids.size && process.env.DISCORD_TOKEN) {
-    try {
-      const res = await fetch('https://discord.com/api/v10/oauth2/applications/@me', {
-        headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN.trim()}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.team && Array.isArray(data.team.members)) {
-          for (const m of data.team.members) {
-            if (m.user && m.user.id) ids.add(m.user.id);
-          }
-        } else if (data.owner && data.owner.id) {
-          ids.add(data.owner.id);
-        }
-      }
-    } catch {}
-  }
-  if (ids.size) cachedAppOwnerIds = ids;
-  return ids;
-}
-
-async function isAllowedOwner(userId) {
-  if (!userId) return false;
-  if (DEMO_MODE) return true;
-  const owners = await resolveOwnerIds();
-  return owners.has(String(userId));
+// ---------------------------------------------------------------- OTURUM DOĞRULAMA
+function isAuthenticated(req) {
+  if (DEMO_MODE) return Boolean(req.session && req.session.user);
+  if (!ADMIN_USER || !ADMIN_PASS) return false;
+  return Boolean(req.session && req.session.user && req.session.credHash === CRED_HASH);
 }
 
 // ---------------------------------------------------------------- YARDIMCILAR
@@ -145,15 +118,10 @@ function getGuild(guildId) {
   return guild;
 }
 
-async function requireAuth(req, res, next) {
-  if (!req.session || !req.session.user) {
-    return res.status(401).json({ error: 'Giriş yapmalısın.' });
-  }
-  if (!(await isAllowedOwner(req.session.user.id))) {
-    req.session = null;
-    return res.status(403).json({ error: 'Bu panel sadece kurucuya özeldir.' });
-  }
-  next();
+function requireAuth(req, res, next) {
+  if (isAuthenticated(req)) return next();
+  req.session = null;
+  res.status(401).json({ error: 'Giriş yapmalısın.' });
 }
 
 function wrap(handler) {
@@ -167,12 +135,12 @@ function wrap(handler) {
 
 const MOD_PERMS = PermissionsBitField.Flags;
 
-/** Doğrulanmış panel kurucusu için aktör nesnesi (sunucu sınırını botun kendi yetkileri belirler). */
+/** Doğrulanmış panel yöneticisi için aktör nesnesi (sunucu sınırını botun kendi yetkileri belirler). */
 async function actorOf(req, guild) {
   const user = req.session.user;
   return {
     id: user.id,
-    user: { id: user.id, tag: `${user.username}#0`, username: user.username },
+    user: { id: user.id, tag: `${user.username}#panel`, username: user.username },
     permissions: new PermissionsBitField(PermissionsBitField.Flags.Administrator),
     roles: { highest: { position: 999999 }, cache: new Set() },
     guildOwner: true,
@@ -180,69 +148,52 @@ async function actorOf(req, guild) {
   };
 }
 
-// ---------------------------------------------------------------- OTURUM
-app.get('/auth/login', (req, res) => {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    const missing = [!CLIENT_ID && 'CLIENT_ID', !CLIENT_SECRET && 'CLIENT_SECRET'].filter(Boolean).join(', ');
-    return res
-      .status(500)
-      .send(`Eksik ortam değişkeni: ${missing}. Render > Environment bölümünden ekleyip Save Changes'e bas, deploy bitince tekrar dene. Teşhis: /setup`);
-  }
+function botInviteUrl() {
+  const appId = CLIENT_ID || (botState.client && botState.client.user ? botState.client.user.id : '');
+  if (!appId) return null;
   const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    response_type: 'code',
-    scope: OAuth2Scopes.Identify + ' ' + OAuth2Scopes.Guilds
+    client_id: appId,
+    permissions: '8',
+    scope: 'bot applications.commands'
   });
-  res.redirect(`https://discord.com/oauth2/authorize?${params}`);
-});
+  return `https://discord.com/oauth2/authorize?${params}`;
+}
 
-app.get('/auth/callback', async (req, res) => {
-  const { code, error, error_description } = req.query;
-  if (!code) {
-    const msg = error_description || error || 'Giriş iptal edildi.';
-    return res.redirect('/?hata=' + encodeURIComponent(msg));
-  }
-  try {
-    const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: REDIRECT_URI
-      })
+// ---------------------------------------------------------------- OTURUM
+app.get('/auth/login', (req, res) => res.redirect('/'));
+
+app.post('/auth/login', async (req, res) => {
+  if (!ADMIN_USER || !ADMIN_PASS) {
+    return res.status(400).json({
+      error: 'Panel girişi ayarlanmamış. Render > Environment bölümüne ADMIN_USER ve ADMIN_PASS ekle.'
     });
-    if (!tokenRes.ok) throw new Error('Token alınamadı: ' + (await tokenRes.text()));
-    const token = await tokenRes.json();
-
-    const userRes = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: { Authorization: `Bearer ${token.access_token}` }
-    });
-    const user = await userRes.json();
-
-    if (!(await isAllowedOwner(user.id))) {
-      req.session = null;
-      console.warn(`[auth] Yetkisiz giriş denemesi reddedildi: ${user.username} (${user.id})`);
-      const owners = await resolveOwnerIds();
-      const reason = owners.size === 0 ? 'kurucu-belirsiz' : 'yetkisiz';
-      return res.redirect('/?hata=' + reason);
-    }
-
-    req.session.accessToken = token.access_token;
-    req.session.user = {
-      id: user.id,
-      username: user.username,
-      globalName: user.global_name,
-      avatar: user.avatar
-    };
-    res.redirect('/');
-  } catch (err) {
-    console.error('[auth]', err);
-    res.redirect('/?hata=' + encodeURIComponent(err.message));
   }
+  const ip = req.ip || 'unknown';
+  const lockedMsg = checkLoginLimit(ip);
+  if (lockedMsg) return res.status(429).json({ error: lockedMsg });
+
+  const { username, password } = req.body || {};
+  const okUser = safeEqual(String(username || '').trim(), ADMIN_USER);
+  const okPass = safeEqual(String(password || ''), ADMIN_PASS);
+
+  if (!okUser || !okPass) {
+    recordFailedLogin(ip);
+    await new Promise((r) => setTimeout(r, 300));
+    console.warn(`[auth] Hatalı giriş denemesi (${ip})`);
+    return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' });
+  }
+
+  loginAttempts.delete(ip);
+  req.session = {
+    user: {
+      id: 'panel-' + ADMIN_USER,
+      username: ADMIN_USER,
+      globalName: ADMIN_USER,
+      avatar: null
+    },
+    credHash: CRED_HASH
+  };
+  res.json({ ok: true, user: req.session.user });
 });
 
 app.post('/auth/logout', (req, res) => {
@@ -250,61 +201,43 @@ app.post('/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-function botInviteUrl() {
-  if (!CLIENT_ID) return null;
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    permissions: '8',
-    scope: 'bot applications.commands'
-  });
-  return `https://discord.com/oauth2/authorize?${params}`;
-}
+app.get('/api/me', (req, res) => {
+  const loggedIn = isAuthenticated(req);
+  if (req.session && req.session.user && !loggedIn) req.session = null;
 
-app.get('/api/me', async (req, res) => {
-  const user = req.session && req.session.user ? req.session.user : null;
-  const isOwner = user ? await isAllowedOwner(user.id) : false;
-  if (user && !isOwner) req.session = null;
+  const hasAuthCfg = Boolean(ADMIN_USER && ADMIN_PASS);
+  const hasToken = Boolean(process.env.DISCORD_TOKEN);
 
-  const base = {
-    user: isOwner ? user : null,
-    ownerOnly: true,
-    configured: Boolean(CLIENT_ID && CLIENT_SECRET && process.env.DISCORD_TOKEN),
-    botReady: botState.ready,
-    redirectUri: REDIRECT_URI
+  const out = {
+    user: loggedIn ? req.session.user : null,
+    authMode: 'password',
+    configured: hasAuthCfg && hasToken,
+    missingAuth: !hasAuthCfg,
+    missingToken: !hasToken,
+    botReady: botState.ready
   };
 
-  if (isOwner) {
-    base.botError = botState.error;
-    base.botTag = botState.ready ? botState.client.user.tag : null;
-    base.inviteUrl = botInviteUrl();
-    base.setup = setupReport();
+  if (loggedIn) {
+    out.botError = botState.error;
+    out.botTag = botState.ready ? botState.client.user.tag : null;
+    out.inviteUrl = botInviteUrl();
+    out.setup = setupReport();
   }
-  res.json(base);
+  res.json(out);
 });
 
-/**
- * Kurulum teşhisi: Discord OAuth2 "Geçersiz redirect_uri" hatası ve bot bağlantı
- * sorunlarını anlamak için. Sır (token/secret) değerleri ASLA döndürülmez.
- */
 function setupReport() {
   const checks = [];
   const add = (ok, title, hint) => checks.push({ ok, title, hint });
 
-  add(Boolean(CLIENT_ID), 'CLIENT_ID tanımlı', 'Render > Environment: CLIENT_ID = Discord uygulama ID');
-  add(Boolean(CLIENT_SECRET), 'CLIENT_SECRET tanımlı', 'Render > Environment: CLIENT_SECRET = Discord gizli anahtar');
-  add(Boolean(process.env.DISCORD_TOKEN), 'DISCORD_TOKEN tanımlı', 'Developer Portal > Bot > Reset Token ile token al');
-  add(BASE_URL.startsWith('https://'), 'Panel adresi https', `Şu an: ${BASE_URL} — PUBLIC_URL'i https://... şeklinde gir`);
-  add(!/localhost|127\.0\.0\.1/i.test(BASE_URL), 'Panel adresi herkese açık', 'PUBLIC_URL boş kalmış; Render adresini gir ya da Render otomatik algılamasına bırak');
-  add(process.env.SESSION_SECRET !== undefined && String(process.env.SESSION_SECRET).length >= 16, 'SESSION_SECRET güçlü', 'En az 16 karakter rastgele bir değer gir');
-  add(Boolean(process.env.PUBLIC_URL), 'PUBLIC_URL elle ayarlı', 'Elle ayarlamak zorunlu değil; Render adresi otomatik de algılanır');
+  add(Boolean(ADMIN_USER), 'ADMIN_USER tanımlı', 'Render > Environment: ADMIN_USER = panel kullanıcı adın');
+  add(Boolean(ADMIN_PASS), 'ADMIN_PASS tanımlı', 'Render > Environment: ADMIN_PASS = güçlü bir panel şifresi');
+  add(Boolean(process.env.DISCORD_TOKEN), 'DISCORD_TOKEN tanımlı', 'Developer Portal > Bot > Reset Token ile bot tokeni al');
   add(botState.ready, 'Bot Discord sunucusuna bağlı', botState.error || 'Loglarda "[bot]" satırlarına bak');
   add(!DEMO_MODE, 'DEMO_MODE kapalı', 'DEMO_MODE=0 olmalı (1 ise sahte veri kullanılır)');
-  add(EXPLICIT_OWNER_IDS.size > 0 || (cachedAppOwnerIds && cachedAppOwnerIds.size > 0), 'Kurucu ID belirlendi', 'OWNER_ID tanımlı değilse bot giriş yapınca uygulama sahibi otomatik alınır');
 
   return {
     baseUrl: BASE_URL,
-    baseUrlSource: BASE_URL_SOURCE,
-    redirectUri: REDIRECT_URI,
     demoMode: DEMO_MODE,
     botReady: botState.ready,
     botError: botState.error,
@@ -313,24 +246,8 @@ function setupReport() {
   };
 }
 
-// Kurulum teşhis sayfası — kurucu girişi gerektirir (giriş yoksa yalnızca yönlendirme adresi gösterilir).
-app.get('/setup', async (req, res) => {
-  const user = req.session && req.session.user ? req.session.user : null;
-  const isOwner = user ? await isAllowedOwner(user.id) : false;
-  if (!isOwner) {
-    return res.type('html').send(`<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1"><title>Kurulum</title>
-    <style>body{font-family:system-ui,sans-serif;background:#0b0d13;color:#e8ebf5;display:grid;place-items:center;min-height:100vh;padding:24px}
-    .card{max-width:520px;background:#161a25;border:1px solid #262c3d;border-radius:14px;padding:24px;line-height:1.7}
-    code{background:#0f1219;border:1px solid #262c3d;padding:3px 7px;border-radius:6px;word-break:break-all;font-size:12.5px}
-    a.btn{display:inline-block;background:#5865f2;color:#fff;padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:600;margin-top:14px}</style>
-    </head><body><div class="card">
-      <h2>🔒 Kurucu Girişi Gerekli</h2>
-      <p style="color:#8b93ab;font-size:13.5px">Bu panel sadece kurucuya özeldir. Detaylı teşhisi görmek için kurucu hesabınla giriş yap.</p>
-      <div style="margin-top:12px;font-size:13px">Discord OAuth2 Redirect adresi:<br><code>${REDIRECT_URI}</code></div>
-      <a class="btn" href="/auth/login">Discord ile Giriş Yap</a>
-    </div></body></html>`);
-  }
+app.get('/setup', (req, res) => {
+  if (!isAuthenticated(req)) return res.redirect('/');
   const r = setupReport();
   const rows = r.checks
     .map(
@@ -349,29 +266,13 @@ app.get('/setup', async (req, res) => {
     .wrap{max-width:760px;margin:0 auto}
     h1{font-size:22px;margin-bottom:6px}
     .card{background:#161a25;border:1px solid #262c3d;border-radius:14px;padding:20px;margin-top:16px}
-    code{background:#0f1219;border:1px solid #262c3d;padding:2px 7px;border-radius:6px;font-size:12.5px;word-break:break-all}
     table{width:100%;border-collapse:collapse}td{padding:9px 4px;border-bottom:1px solid #202636;vertical-align:top}
     .big{font-size:15px;margin:8px 0}
     a.btn{display:inline-block;background:#5865f2;color:#fff;padding:11px 18px;border-radius:10px;text-decoration:none;font-weight:600;margin-top:14px}
     .muted{color:#8b93ab;font-size:12.5px}
   </style></head><body><div class="wrap">
     <h1>🔧 Kurulum Teşhisi</h1>
-    <div class="muted">Discord girişi / bot bağlantısı çalışmıyorsa sebebi burada yazar. Sırlar gösterilmez.</div>
-
-    <div class="card">
-      <div class="big">Panel adresi: <code>${r.baseUrl}</code></div>
-      <div class="muted">Kaynak: ${r.baseUrlSource}</div>
-      <div class="big" style="margin-top:14px">Discord'a kayıtlı olması gereken yönlendirme adresi:</div>
-      <div><code>${r.redirectUri}</code></div>
-      <div class="muted" style="margin-top:6px">
-        Discord Developer Portal &gt; OAuth2 &gt; Redirects bölümüne <b>birebir</b> bu adresi ekle
-        (sonda <code>/</code> olmadan, <code>https://</code> ile).
-      </div>
-      <a class="btn" href="/">Panele dön</a>
-    </div>
-
-    <div class="card"><table>${rows}</table></div>
-
+    <div class="card"><table>${rows}</table><a class="btn" href="/">Panele dön</a></div>
     <div class="card">
       <div class="big">Bot durumu</div>
       <div>${r.botReady ? '🟢 Çevrimiçi' : '🔴 Çevrimdışı'}</div>
@@ -919,16 +820,13 @@ if (DEMO_MODE) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[web] Panel çalışıyor: ${BASE_URL} (port ${PORT})${DEMO_MODE ? ' [DEMO]' : ''}`);
-  console.log(`[web] Panel adresi kaynağı: ${BASE_URL_SOURCE}${HAS_RENDER ? '' : ' — Render ortamı algılanmadı'}`);
-  console.log(`[web] Discord OAuth2 redirect_uri: ${REDIRECT_URI}`);
-  console.log(`[web] Erişim modu: Yalnızca kurucu${EXPLICIT_OWNER_IDS.size ? ` (OWNER_ID: ${[...EXPLICIT_OWNER_IDS].join(', ')})` : ' (Discord uygulama sahibi otomatik)'}`);
   if (!DEMO_MODE) {
+    if (!ADMIN_USER || !ADMIN_PASS) {
+      console.warn('[auth] UYARI: ADMIN_USER / ADMIN_PASS tanımlı değil — panele giriş yapılamaz!');
+    } else {
+      console.log(`[auth] Kullanıcı adı/şifre girişi aktif (kullanıcı: ${ADMIN_USER})`);
+    }
     startBot();
-    resolveOwnerIds().then((ids) => {
-      if (ids.size) console.log(`[auth] Kurucu ID(leri): ${[...ids].join(', ')}`);
-      else console.warn('[auth] UYARI: Kurucu ID henüz alınamadı. OWNER_ID ortam değişkenini ekleyebilirsin.');
-    });
   }
 });
-
 module.exports = { app };
