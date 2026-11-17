@@ -70,18 +70,18 @@ const ORACLES = {
 // Metinleri birkaç sabit yanıta hapsetmek yerine parçaları birleştiriyoruz. Sosyal
 // aksiyonlarda 3 x 12 x 10 = 360+, falda binlerce farklı doğal kombinasyon oluşur.
 const ACTION_MOODS = [
-  'Ortam bir anda anime sahnesine döndü.', 'Arka planda açılış müziği çalmaya başladı.',
-  'Sunucudaki herkes dönüp bu ana baktı.', 'Kamera dramatik biçimde yakınlaştı.',
-  'Efekt bütçesinin tamamı bu sahneye harcandı.', 'Zaman sanki birkaç saniyeliğine durdu.',
-  'Bu hareket sezon finaline damga vurdu.', 'Sohbetin enerjisi bir anda yükseldi.',
-  'Lores kameraları bu efsane anı kaydetti.', 'Anime yönetmeni bu sahneyi onayladı.',
-  'Beklenmedik ama kusursuz bir hamleydi.', 'Sahne tekrar oynatılmak üzere arşivlendi.'
+  'Ortam bir anda hareketlendi.', 'Bunu kimse beklemiyordu.',
+  'Bir an herkes dönüp baktı.', 'Zamanlaması da tam yerindeydi.',
+  'Sohbetin havası bir anda değişti.', 'Olanlar birkaç saniyede oldu.',
+  'Günün olayı bu olabilir.', 'İkisi de rolünü iyi oynadı.',
+  'Bu hareket unutulmaz.', 'Tam da ondan beklenecek bir hareketti.',
+  'Sessizlik kısa sürdü.', 'Her şey göz açıp kapayıncaya kadar oldu.'
 ];
 const ACTION_ENDINGS = [
-  'Devamı bir sonraki bölümde!', 'Karşı hamle gelecek mi?', 'İzleyenlerden tam puan aldı.',
-  'Bu an kolay kolay unutulmayacak.', 'Sunucu tarihine altın harflerle yazıldı.',
-  'Duygular tavan yaptı.', 'Kritik başarı!', 'Enerji seviyesi: maksimum.',
-  'Birileri bunu klip alsın!', 'Lores Bot sonucu resmen onayladı.'
+  'Bakalım karşılık gelecek mi?', 'Bunu görenler bir süre unutmaz.', 'Gayet net bir hamleydi.',
+  'Devamı gelecek gibi duruyor.', 'Sohbet bunu bir süre konuşur.',
+  'İkisinin de keyfi yerinde.', 'Tam isabet.', 'Oldukça iyi denk geldi.',
+  'Birisi bunu kayda alsın.', 'Sonuç gayet açık.'
 ];
 const RECENT_TEXT = new Map();
 function pickFresh(key, factory, recentLimit = 15) {
@@ -336,39 +336,44 @@ const METER_GIFS = {
   sadakat: 'handhold', komiklik: 'laugh', enerji: 'dance', coolluk: 'cool', güvenilirlik: 'hug'
 };
 
-const METER_SCANNERS = {
-  aşk: ['Kalp ritimleri karşılaştırıldı', 'Romantik frekanslar eşleştirildi', 'Kelebek sensörleri çalıştırıldı'],
-  çekicilik: ['Aura parlaklığı tarandı', 'Bakış yakalama oranı hesaplandı', 'Stil sensörleri kalibre edildi'],
-  karizma: ['Ortam hâkimiyeti ölçüldü', 'Karizma dalgaları tarandı', 'Liderlik aurası analiz edildi'],
-  azgınlık: ['Ateş seviyesi ölçüldü', 'Ortam sıcaklığı kontrol edildi', 'Baharat sensörü çalıştırıldı'],
-  delilik: ['Mantık filtresi test edildi', 'Çılgınlık sinyalleri yakalandı', 'Kaos radarı çalıştırıldı'],
-  masumluk: ['Melek kanatları tarandı', 'Masumiyet filtresi uygulandı', 'Şüphe seviyesi kontrol edildi'],
-  kıskançlık: ['Dedektif modu incelendi', 'Yan bakışlar analiz edildi', 'Takip radarı tarandı'],
-  toksiklik: ['Zehir sensörü çalıştırıldı', 'Sohbet geçmişi simüle edildi', 'Tehlike seviyesi ölçüldü'],
-  yakışıklılık: ['Podyum sensörleri açıldı', 'Kamera uyumu hesaplandı', 'Stil katsayısı ölçüldü'],
-  güzellik: ['Işık ve aura tarandı', 'Kamera sensörü kalibre edildi', 'Parlaklık seviyesi ölçüldü'],
-  zenginlik: ['Gelecek kasası tarandı', 'Yatırım aurası ölçüldü', 'Para mıknatısı test edildi'],
-  şanslılık: ['Kader zarları atıldı', 'Dört yapraklı yonca tarandı', 'Şans frekansı ölçüldü'],
-  oyunculuk: ['Refleksler simüle edildi', 'E-spor sensörü çalıştırıldı', 'Klavye gücü hesaplandı'],
-  zekâ: ['Beyin işlemcisi test edildi', 'Nöron hızı ölçüldü', 'Problem çözme motoru çalıştı'],
-  tembellik: ['Yatak çekim gücü ölçüldü', 'Enerji tasarrufu tarandı', 'Mola ihtiyacı hesaplandı'],
-  sadakat: ['Dostluk bağı tarandı', 'Güven zinciri test edildi', 'Yol arkadaşlığı analiz edildi'],
-  komiklik: ['Mizah motoru çalıştırıldı', 'Kahkaha frekansı ölçüldü', 'Espri zamanlaması analiz edildi'],
-  enerji: ['Pil seviyesi tarandı', 'Hareket sensörü çalıştırıldı', 'Tempo gücü ölçüldü'],
-  coolluk: ['Buz seviyesi ölçüldü', 'Havalılık radarı çalıştı', 'Stil sıcaklığı tarandı'],
-  güvenilirlik: ['Güven protokolü çalıştırıldı', 'Sözünde durma oranı ölçüldü', 'Dostluk kalkanı test edildi']
+const METER_REACTIONS = {
+  aşk: ['Aralarında bir şeyler olabilir.', 'Birbirlerini biraz daha tanımaları lazım.', 'Bu ikiliden güzel bir hikâye çıkabilir.'],
+  çekicilik: ['Bugün dikkatleri üstüne çekiyor.', 'Tarzı gayet yerinde.', 'Bakışları toplaması şaşırtmaz.'],
+  karizma: ['Girdiği ortamda fark ediliyor.', 'Sessiz kalsa bile havası var.', 'Kendine has bir duruşu var.'],
+  azgınlık: ['Bugün biraz sakin takılıyor.', 'İçinde hafif bir kıpırtı var.', 'Bugün yerinde durması zor olabilir.'],
+  delilik: ['Mantıkla arası bugün pek iyi değil.', 'Ne yapacağı biraz belli olmaz.', 'Ortamı karıştırma ihtimali var.'],
+  masumluk: ['Yüzü masum diyor ama emin olamadık.', 'Biraz melek, biraz yaramaz.', 'Bugün uslu görünmeye çalışıyor.'],
+  kıskançlık: ['Göz ucuyla kontrol ediyor olabilir.', 'Pek belli etmese de dikkatli.', 'Bugün dedektifliğe yatkın.'],
+  toksiklik: ['Bugün sohbeti germeyecek gibi.', 'Arada sivri konuşabilir.', 'Biraz mesafe iyi gelebilir.'],
+  yakışıklılık: ['Bugün fotoğraflarda iyi çıkar.', 'Tarzı gayet oturmuş.', 'Dikkat çekmesi normal.'],
+  güzellik: ['Bugün ışığı iyi yakalamış.', 'Gayet hoş görünüyor.', 'Fazladan filtreye ihtiyacı yok.'],
+  zenginlik: ['Cebini dikkatli kullanması lazım.', 'Parayla arası fena görünmüyor.', 'Bir gün köşeyi dönebilir.'],
+  şanslılık: ['Bugün fazla risk almasın.', 'Ufak bir şansı var.', 'Bugün denemeye değer.'],
+  oyunculuk: ['Biraz daha pratik gerekebilir.', 'Takıma alınır.', 'Rakipler dikkat etsin.'],
+  zekâ: ['Bugün kafası biraz dağınık.', 'Çözümü bulması uzun sürmez.', 'Kafası gayet iyi çalışıyor.'],
+  tembellik: ['Bugün enerjisi yerinde.', 'Bir mola isteyebilir.', 'Yataktan çıkması zor olmuş olabilir.'],
+  sadakat: ['Biraz zamana ihtiyacı var.', 'İyi bir yol arkadaşı gibi.', 'Sırtını rahatça yaslayabilirsin.'],
+  komiklik: ['Esprileri bugün pek tutmayabilir.', 'Arada iyi yakalıyor.', 'Ortamı güldürmesi uzun sürmez.'],
+  enerji: ['Bugün biraz yavaş.', 'Günü çıkaracak kadar enerjisi var.', 'Yerinde duracak gibi değil.'],
+  coolluk: ['Bugün havasında değil.', 'Gayet rahat takılıyor.', 'Ortamın en rahatı olabilir.'],
+  güvenilirlik: ['Biraz temkinli olmakta fayda var.', 'Çoğu konuda güvenilebilir.', 'Söz verdiyse büyük ihtimalle tutar.']
 };
-const SCAN_DETAILS = ['Veriler Lores çekirdeğinde işlendi.', 'Anime sensörleri sonucu doğruladı.', 'Aura dalgaları başarıyla çözümlendi.', 'Sonuç üç farklı algoritmayla karşılaştırıldı.', 'Tarama sinyali kusursuz şekilde alındı.', 'Gizli istatistikler başarıyla ortaya çıkarıldı.'];
+const METER_ASIDES = [
+  'Tabii yarın fikir değişebilir.', 'Bugünkü sonuç böyle çıktı.', 'Çok da ciddiye alma.',
+  'Yakından tanıyanlar daha iyi bilir.', 'Son karar yine sende.', 'Şimdilik tablo böyle.'
+];
 function meterTier(score) {
-  if (score >= 90) return '💎 Efsanevi';
-  if (score >= 75) return '🔥 Çok yüksek';
-  if (score >= 55) return '✨ Yüksek';
-  if (score >= 35) return '⚡ Orta';
-  if (score >= 15) return '🌙 Düşük';
-  return '🧊 Çok düşük';
+  if (score >= 90) return 'Efsane';
+  if (score >= 75) return 'Çok yüksek';
+  if (score >= 55) return 'Yüksek';
+  if (score >= 35) return 'Orta';
+  if (score >= 15) return 'Düşük';
+  return 'Çok düşük';
 }
-function scanText(name) {
-  return `${randomOf(METER_SCANNERS[name] || ['Özel sensörler çalıştırıldı'])}. ${randomOf(SCAN_DETAILS)}`;
+function meterReaction(name, score) {
+  const list = METER_REACTIONS[name] || ['Sonuç pek şaşırtmadı.', 'Beklenen civarda çıktı.', 'Bugün böyle denk geldi.'];
+  const index = score >= 67 ? 2 : score >= 34 ? 1 : 0;
+  return `${list[index]} ${randomOf(METER_ASIDES)}`;
 }
 
 async function runMeter(interaction, name, info) {
@@ -381,13 +386,8 @@ async function runMeter(interaction, name, info) {
   const who = two ? `<@${one.id}> × <@${two.id}>` : `<@${one.id}>`;
   const gif = await getGif(METER_GIFS[name] || 'happy');
   const embed = baseEmbed(interaction, score >= 75 ? COLORS.pink : score >= 35 ? COLORS.purple : COLORS.blue)
-    .setTitle(`${info.emoji} ${info.title}: %${score}`)
-    .setDescription(`> ${scanText(name)}\n\n### ${bar(score)}  **%${score}**\n\n**${meterTier(score)}** — *${comment}*`)
-    .addFields(
-      { name: '🎯 Analiz Edilen', value: who, inline: true },
-      { name: '📡 Tarama', value: `${info.emoji} ${info.title} sensörü`, inline: true },
-      { name: '🏅 Sonuç', value: meterTier(score), inline: true }
-    )
+    .setTitle(`${info.title} • %${score}`)
+    .setDescription(`**${who} için sonuç**\n${meterReaction(name, score)}\n\n${bar(score)}  **%${score}**\n**${meterTier(score)}** — ${comment}`)
     .setThumbnail(one.displayAvatarURL({ size: 256 }))
     .setImage(gif);
   return interaction.editReply({ embeds: [embed] });
