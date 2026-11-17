@@ -89,3 +89,14 @@ src/store.js       → JSON veritabanı
 src/demo.js        → DEMO_MODE sahte verisi
 public/            → panel arayüzü (index.html, app.js, style.css)
 ```
+
+### 🎉 85 Slash Komutlu Eğlence Merkezi
+
+Bot açıldığında sunuculara toplam 85 `/` komutu kaydeder (Discord'un sunucu başına 100 uygulama komutu sınırının altında):
+
+- **GIF'li etkileşimler:** `/sarıl`, `/öp`, `/okşa`, `/tokat`, `/yumruk`, `/tekme`, `/gıdıkla`, `/dans`, `/el-tut`, `/göz-kırp`, `/iltifat` ve daha fazlası
+- **Eğlenceli ölçerler:** `/aşk`, `/çekicilik`, `/karizma`, `/azgınlık`, `/zekâ`, `/coolluk`, `/sadakat`, `/toksiklik`, `/komiklik` ve daha fazlası
+- **Mini oyunlar:** `/taşkağıtmakas`, `/zar-at`, `/yazı-tura`, `/rastgele-sayı`
+- **Kehanet ve araçlar:** `/fal`, `/motto`, `/kim`, `/yüzde`, `/seç`, `/gerçekmi`, `/evethayır`, `/avatar`, `/profil`, `/sunucu`
+
+GIF etkileşimleri `nekos.best` üzerinden alınır; servis geçici olarak erişilemezse komut görsel kart ve metinle çalışmaya devam eder. Ölçer sonuçları tamamen eğlence amaçlıdır ve her gün yenilenir.

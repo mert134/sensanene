@@ -17,6 +17,7 @@ const settings = require('./settings');
 const mod = require('./moderation');
 const eco = require('./economy');
 const games = require('./games');
+const { funSlashCommands, handleFunInteraction } = require('./funCommands');
 
 const COLOR = {
   main: 0x5865f2,
@@ -168,14 +169,26 @@ cmd(['yardım', 'help', 'komutlar'], 'Tüm komutları listeler', '/yardım', asy
     },
     {
       name: '🎰 Eğlence & Ekonomi',
-      value: '`/slot` • `/yazıtura` • `/zar`\n`/günlük` • `/bakiye` • `/sıralama`\n`/şans` • `/8ball` • `/espri`'
+      value: '`/slot` • `/yazıtura` • `/zar`\n`/günlük` • `/bakiye` • `/sıralama`'
+    },
+    {
+      name: '💞 Sosyal Etkileşim',
+      value: '`/sarıl` • `/öp` • `/okşa` • `/tokat` • `/dans`\n`/gıdıkla` • `/el-tut` • `/göz-kırp` • `/iltifat`'
+    },
+    {
+      name: '📊 Eğlenceli Ölçerler',
+      value: '`/aşk` • `/çekicilik` • `/karizma` • `/azgınlık`\n`/zekâ` • `/coolluk` • `/sadakat` • `/toksiklik`'
+    },
+    {
+      name: '🔮 Mini Oyunlar & Araçlar',
+      value: '`/taşkağıtmakas` • `/zar-at` • `/yazı-tura`\n`/fal` • `/kim` • `/yüzde` • `/profil` • `/sunucu`'
     }
   ];
   const embed = new EmbedBuilder()
     .setColor(COLOR.main)
     .setAuthor({ name: 'LORES • Komut Merkezi', iconURL: ctx.client.user.displayAvatarURL() })
     .setTitle('✨ Güç senin elinde')
-    .setDescription('Aşağıdaki **/** komutlarından birini seç. Discord yazarken seçenekleri otomatik gösterecek.')
+    .setDescription('**85 özel /** komutundan birini seç. Discord yazarken seçenekleri otomatik gösterecek.')
     .addFields(categories)
     .setThumbnail(ctx.client.user.displayAvatarURL({ size: 256 }))
     .setFooter({ text: `${ctx.guild.name} • Süreler: 10m, 2h, 1g • Bahis en az 10 coin`, iconURL: ctx.guild.iconURL() || undefined })
@@ -481,7 +494,7 @@ const slashCommands = [
   new SlashCommandBuilder().setName('8ball').setDescription('Sihirli küre sorunu cevaplasın')
     .addStringOption(o => o.setName('soru').setDescription('Cevabını aradığın soru').setRequired(true).setMaxLength(300)),
   new SlashCommandBuilder().setName('espri').setDescription('Lores Bot sana bir espri yapsın')
-].map(c => c.setDMPermission(false).toJSON());
+].map(c => c.setDMPermission(false).toJSON()).concat(funSlashCommands);
 
 async function registerSlashForGuild(guild) {
   try {
@@ -534,8 +547,14 @@ function interactionMessage(interaction) {
 }
 
 async function handleInteraction(interaction) {
+  if (!interaction.guild) return;
+  if (await handleFunInteraction(interaction)) {
+    botState.commands += 1;
+    settings.log(interaction.guild.id, 'bot', `${interaction.user.tag}: /${interaction.commandName} kullandı`);
+    return;
+  }
   const command = commands.get(interaction.commandName);
-  if (!command || !interaction.guild) return;
+  if (!command) return;
   botState.commands += 1;
   const p = slashPayload(interaction);
   if (p.user && !p.member) p.member = await interaction.guild.members.fetch(p.user.id).catch(() => null);
