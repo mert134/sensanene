@@ -253,8 +253,8 @@ function router() {
     const ch = channels.find((c) => c.id === req.body.channelId);
     if (!ch || !['text', 'announcement'].includes(ch.type)) return res.status(400).json({ error: 'Bu kanala mesaj gönderilemez.' });
     if (!String(req.body.content || '').trim()) return res.status(400).json({ error: 'Mesaj boş olamaz.' });
-    pushLog('channel', `#${ch.name} kanalına panelden mesaj gönderildi`);
-    res.json({ ok: true, message: 'Mesaj gönderildi.', messageId: 'demo-message' });
+    pushLog('channel', `#${ch.name} kanalına panelden ${req.body.anonymous ? 'anonim ' : ''}mesaj gönderildi`);
+    res.json({ ok: true, anonymous: Boolean(req.body.anonymous), message: req.body.anonymous ? 'Anonim mesaj gönderildi.' : 'Mesaj gönderildi.', messageId: 'demo-message' });
   });
 
   r.post('/api/channels/lock', (req, res) => {

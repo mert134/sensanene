@@ -1051,6 +1051,10 @@ function editChannel(ch) {
         el('span', { class: `lock-status ${ch.locked ? 'locked' : ''}`, text: ch.locked ? 'Yazmaya kapalı' : 'Yazmaya açık' })
       ]),
       el('textarea', { class: 'input', id: 'channelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' }),
+      el('div', { class: 'anonymous-option' }, [
+        el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAnonymous' }), el('span', { text: 'Anonim olarak gönder' })]),
+        el('small', { text: 'Mesaj “Anonim” adlı webhook hesabından gider; panel kullanıcısının adı görünmez.' })
+      ]),
       el('div', { class: 'mention-options' }, [
         el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions' }), el('span', { text: 'Kullanıcı ve rol etiketlerini etkinleştir' })]),
         el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowEveryone' }), el('span', { text: '@everyone ve @here etiketlerini etkinleştir' })])
@@ -1076,7 +1080,8 @@ async function sendChannelMessage(ch) {
     const allowMentions = Boolean($('#channelAllowMentions')?.checked);
     const allowEveryone = Boolean($('#channelAllowEveryone')?.checked);
     if (allowEveryone && /@(everyone|here)\b/i.test(content) && !confirm('Bu mesaj sunucudaki çok sayıda kişiye bildirim gönderebilir. Devam edilsin mi?')) return;
-    const r = await api('/api/channels/message', { method: 'POST', body: { channelId: ch.id, content, allowMentions, allowEveryone } });
+    const anonymous = Boolean($('#channelAnonymous')?.checked);
+    const r = await api('/api/channels/message', { method: 'POST', body: { channelId: ch.id, content, allowMentions, allowEveryone, anonymous } });
     if (!r.ok) return toast(r.error || 'Mesaj gönderilemedi', 'err');
     input.value = '';
     toast('Mesaj kanala gönderildi', 'ok');
