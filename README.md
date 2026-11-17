@@ -27,7 +27,8 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - Rol oluştur / sil, üyeye rol ver / al (rol sıralaması korumalı)
 
 **Eğlence & ekonomi (hem panelde hem Discord'da)**
-- 🎰 Slot makinesi (animasyonlu, ağırlıklı semboller), 🪙 yazı tura, 🎲 zar
+- 🎰 OwO tarzı slot: yalnızca üç aynı sembol kazandırır; özel dönen makara animasyonu ve dengeli çarpanlar
+- 🪙 Yazı tura ve 🎲 zar oyunları için özel Lores casino animasyonları
 - Günlük ödül, cüzdan, sunucu sıralaması
 - Modern Discord `/` komutları: `/slot`, `/yazıtura`, `/zar`, `/günlük`, `/bakiye`, `/sıralama`, `/şans`, `/8ball`, `/espri`, `/yardım`
 - Komutlar her sunucuya otomatik kaydolur; Discord seçenekleri ve kullanıcı/rol seçicileri doğrudan gösterir
