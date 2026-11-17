@@ -193,6 +193,7 @@ function bar(n) {
 }
 
 const GIF_RECENT = new Map();
+const GIF_VALIDATION = new Map();
 const FALLBACK_GIF = 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif';
 
 // Her aksiyon önce tam isimli anime kategorisini dener. İkinci isim yalnızca aynı
@@ -206,20 +207,47 @@ const ACTION_GIF_ALIASES = {
   shoot: ['shoot'], nom: ['nom']
 };
 
+async function validateGifUrl(url) {
+  if (!url || !/^https:\/\//i.test(url)) return false;
+  const cached = GIF_VALIDATION.get(url);
+  if (cached && cached.expires > Date.now()) return cached.ok;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  try {
+    // Discord da dosyayı uzaktan indirir. Burada küçük bir aralık isteğiyle URL'nin
+    // gerçekten erişilebilir bir görsel döndürdüğünü önceden doğruluyoruz.
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: { Range: 'bytes=0-1023', Accept: 'image/gif,image/webp,image/apng,image/*' }
+    });
+    const type = (res.headers && res.headers.get('content-type')) || '';
+    const ok = res.ok && type.toLowerCase().startsWith('image/');
+    if (res.body && typeof res.body.cancel === 'function') await res.body.cancel().catch(() => {});
+    GIF_VALIDATION.set(url, { ok, expires: Date.now() + (ok ? 30 * 60 * 1000 : 2 * 60 * 1000) });
+    return ok;
+  } catch {
+    GIF_VALIDATION.set(url, { ok: false, expires: Date.now() + 2 * 60 * 1000 });
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchProviderGif(provider, endpoint) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const url = provider === 'otaku'
+    const apiUrl = provider === 'otaku'
       ? `https://api.otakugifs.xyz/gif?reaction=${encodeURIComponent(endpoint)}`
       : `https://nekos.best/api/v2/${encodeURIComponent(endpoint)}`;
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(apiUrl, { signal: controller.signal });
     if (!res.ok) return null;
     const json = await res.json();
     const gif = provider === 'otaku'
       ? json.url
       : (json.results && json.results[0] ? json.results[0].url : null);
-    return gif || null;
+    return (gif && await validateGifUrl(gif)) ? gif : null;
   } catch {
     return null;
   } finally {
@@ -231,10 +259,10 @@ async function getGif(action) {
   const aliases = ACTION_GIF_ALIASES[action] || [action];
   const recent = GIF_RECENT.get(action) || [];
   let duplicate = null;
-  // Sağlayıcılar her istekte rastgele GIF verir. Son 30 GIF'i tutup aynı URL gelirse
+  // Sağlayıcılar her istekte rastgele GIF verir. Önce Discord CDN'iyle daha uyumlu nekos denenir. Son 30 GIF'i tutup aynı URL gelirse
   // yeniden isteyerek peş peşe aynı animasyonu göstermemeyi sağlarız.
   for (const endpoint of aliases) {
-    for (const provider of ['otaku', 'nekos']) {
+    for (const provider of ['nekos', 'otaku']) {
       for (let attempt = 0; attempt < 3; attempt++) {
         const url = await fetchProviderGif(provider, endpoint);
         if (!url) break;
