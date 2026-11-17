@@ -1052,8 +1052,8 @@ function editChannel(ch) {
       ]),
       el('textarea', { class: 'input', id: 'channelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' }),
       el('div', { class: 'anonymous-option' }, [
-        el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAnonymous' }), el('span', { text: 'Anonim olarak gönder' })]),
-        el('small', { text: 'Mesaj yalnızca “Anonymous” adıyla gider; panel kullanıcısı mesajda görünmez.' })
+        el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAnonymous' }), el('span', { text: 'Anonymous' })]),
+        el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur; panel kullanıcısının adı görünmez.' })
       ]),
       el('div', { class: 'mention-options' }, [
         el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions' }), el('span', { text: 'Kullanıcı ve rol etiketlerini etkinleştir' })]),
