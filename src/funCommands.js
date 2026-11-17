@@ -32,7 +32,7 @@ const ACTIONS = {
   düşün: { api: 'think', emoji: '🤔', verb: 'hakkında derin düşüncelere daldı', lines: ['Beyin işlem yapıyor…', 'Büyük planlar var.', 'Sonuç henüz yükleniyor.'] },
   aferin: { api: 'thumbsup', emoji: '👍', verb: 'onay mührünü bastı', lines: ['Kalite kontrolden geçti.', 'Harika iş!', 'Lores Bot onayladı.'] },
   dürt: { api: 'poke', emoji: '👉', verb: 'dürtüp kaçtı', lines: ['Yakalanmadan uzaklaştı.', 'Dikkat başarıyla çekildi.', 'Şimdi sıra karşı tarafta.'] },
-  kovala: { api: 'chase', emoji: '🏃', verb: 'peşinden koşmaya başladı', lines: ['Kaçış rotası hesaplanıyor.', 'Nefesler kesildi.', 'Kovalama sahnesi başladı.'] },
+  kovala: { api: ['chase', 'run', 'yeet'], emoji: '🏃', verb: 'peşinden koşmaya başladı', lines: ['Kaçış rotası hesaplanıyor.', 'Nefesler kesildi.', 'Kovalama sahnesi başladı.'] },
   'ateş-et': { api: 'shoot', emoji: '🔫', verb: 'piksel tabancasını ateşledi', lines: ['Tamamen oyun efekti!', 'Respawn noktası yakında.', 'Pew pew!'] },
   ye: { api: 'nom', emoji: '😋', verb: 'yanaklarını nom nom yaptı', lines: ['Çok tatlı olmanın sonuçları.', 'Bir lokma sevgi.', 'Nom seviyesi maksimum.'] }
 };
@@ -116,16 +116,37 @@ function bar(n) {
   return `${'▰'.repeat(full)}${'▱'.repeat(10 - full)}`;
 }
 
-async function getGif(endpoint) {
+const GIF_CACHE = new Map();
+const FALLBACK_GIF = 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif';
+
+async function fetchNekosGif(endpoint) {
+  const cached = GIF_CACHE.get(endpoint);
+  if (cached && cached.expires > Date.now()) return cached.url;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
     const res = await fetch(`https://nekos.best/api/v2/${endpoint}`, { signal: controller.signal });
-    clearTimeout(timer);
     if (!res.ok) return null;
     const json = await res.json();
-    return json.results && json.results[0] ? json.results[0].url : null;
-  } catch { return null; }
+    const url = json.results && json.results[0] ? json.results[0].url : null;
+    if (url) GIF_CACHE.set(endpoint, { url, expires: Date.now() + 5 * 60 * 1000 });
+    return url;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getGif(endpoint) {
+  // Bazı etkileşimlerin (örn. kovala) API'de birebir adı yok. Sırayla en yakın
+  // anime aksiyonlarını deneriz; ağ tamamen kapalıysa bile animasyonsuz kart dönmez.
+  const candidates = [...new Set([].concat(endpoint || [], 'dance'))];
+  for (const candidate of candidates) {
+    const url = await fetchNekosGif(candidate);
+    if (url) return url;
+  }
+  return FALLBACK_GIF;
 }
 
 function baseEmbed(interaction, color = COLORS.purple) {
@@ -143,11 +164,14 @@ async function runAction(interaction, name, info) {
   await interaction.deferReply();
   const gif = await getGif(info.api);
   const line = info.lines[Math.floor(Math.random() * info.lines.length)];
-  const embed = baseEmbed(interaction, COLORS.pink)
-    .setTitle(`${info.emoji} ${interaction.user.username} → ${target.username}`)
-    .setDescription(`<@${interaction.user.id}>, <@${target.id}> kullanıcısına **${info.verb}!**\n\n*${line}*`)
-    .setThumbnail(target.displayAvatarURL({ size: 256 }));
-  if (gif) embed.setImage(gif);
+  const actionColors = [COLORS.pink, COLORS.purple, COLORS.blue, COLORS.gold, COLORS.green];
+  const accent = actionColors[seededPercent(name, interaction.user.id, target.id) % actionColors.length];
+  const embed = baseEmbed(interaction, accent)
+    .setAuthor({ name: `LORES • ${name.toLocaleUpperCase('tr-TR')} ANİMASYONU`, iconURL: interaction.client.user.displayAvatarURL() })
+    .setTitle(`${info.emoji} ${interaction.user.username}  ➜  ${target.username}`)
+    .setDescription(`### ${info.emoji} Etkileşim başladı!\n<@${interaction.user.id}>, <@${target.id}> kullanıcısına **${info.verb}!**\n\n> *${line}*`)
+    .setThumbnail(target.displayAvatarURL({ size: 256 }))
+    .setImage(gif);
   return interaction.editReply({ content: `<@${target.id}>`, embeds: [embed], allowedMentions: { users: [target.id] } });
 }
 
