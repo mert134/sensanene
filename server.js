@@ -6,8 +6,9 @@
  */
 const express = require('express');
 const cookieSession = require('cookie-session');
+const crypto = require('crypto');
 const path = require('path');
-const { PermissionsBitField, OAuth2Scopes } = require('discord.js');
+const { PermissionsBitField } = require('discord.js');
 
 const settings = require('./src/settings');
 const mod = require('./src/moderation');
@@ -18,11 +19,66 @@ const { db } = require('./src/store');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const CLIENT_ID = process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.CLIENT_SECRET || process.env.DISCORD_CLIENT_SECRET || '';
-const BASE_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
-const REDIRECT_URI = `${BASE_URL}/auth/callback`;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'degistir-beni-' + CLIENT_ID;
+const CLIENT_ID = (process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '').trim();
+const ADMIN_USER = (process.env.ADMIN_USER || process.env.PANEL_USER || '').trim();
+const ADMIN_PASS = (process.env.ADMIN_PASS || process.env.PANEL_PASS || '').trim();
+
+function detectBaseUrl(port) {
+  const clean = (v) => String(v || '').trim().replace(/\/+$/, '');
+  const explicit = clean(process.env.PUBLIC_URL);
+  const renderUrl = clean(process.env.RENDER_EXTERNAL_URL);
+  const renderHost = clean(process.env.RENDER_EXTERNAL_HOSTNAME);
+  if (explicit && !/localhost|127\.0\.0\.1/i.test(explicit)) return explicit;
+  if (renderUrl) return renderUrl;
+  if (renderHost) return `https://${renderHost}`;
+  return explicit || `http://localhost:${port}`;
+}
+
+const BASE_URL = detectBaseUrl(PORT);
+const SESSION_SECRET = (
+  process.env.SESSION_SECRET ||
+  crypto.createHash('sha256').update(`${ADMIN_USER}:${ADMIN_PASS}:${process.env.DISCORD_TOKEN || 'panel'}`).digest('hex')
+).trim();
+
+const CRED_HASH =
+  ADMIN_USER && ADMIN_PASS
+    ? crypto.createHash('sha256').update(`${ADMIN_USER}\0${ADMIN_PASS}`).digest('hex').slice(0, 16)
+    : '';
+
+function safeEqual(a, b) {
+  const h1 = crypto.createHash('sha256').update(String(a || '')).digest();
+  const h2 = crypto.createHash('sha256').update(String(b || '')).digest();
+  return crypto.timingSafeEqual(h1, h2);
+}
+
+// Hatalı şifre denemelerine karşı basit IP koruması (15 dk içinde en fazla 8 deneme)
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 8;
+const LOCK_WINDOW_MS = 15 * 60 * 1000;
+
+function checkLoginLimit(ip) {
+  const rec = loginAttempts.get(ip);
+  if (!rec) return null;
+  if (Date.now() > rec.resetAt) {
+    loginAttempts.delete(ip);
+    return null;
+  }
+  if (rec.count >= MAX_ATTEMPTS) {
+    const mins = Math.max(1, Math.ceil((rec.resetAt - Date.now()) / 60000));
+    return `Çok fazla hatalı deneme. ${mins} dakika sonra tekrar dene.`;
+  }
+  return null;
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  const rec = loginAttempts.get(ip);
+  if (!rec || now > rec.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOCK_WINDOW_MS });
+  } else {
+    rec.count += 1;
+  }
+}
 
 app.use(express.json());
 app.set('trust proxy', 1);
@@ -32,7 +88,6 @@ app.use(
     secret: SESSION_SECRET,
     maxAge: 1000 * 60 * 60 * 24 * 7,
     sameSite: 'lax',
-    secure: BASE_URL.startsWith('https'),
     httpOnly: true
   })
 );
@@ -43,6 +98,13 @@ const DEMO_MODE = process.env.DEMO_MODE === '1' || process.env.DEMO_MODE === 'tr
 if (DEMO_MODE) {
   console.log('[demo] DEMO_MODE aktif — sahte sunucu verisi kullanılıyor.');
   app.use(require('./src/demo').router());
+}
+
+// ---------------------------------------------------------------- OTURUM DOĞRULAMA
+function isAuthenticated(req) {
+  if (DEMO_MODE) return Boolean(req.session && req.session.user);
+  if (!ADMIN_USER || !ADMIN_PASS) return false;
+  return Boolean(req.session && req.session.user && req.session.credHash === CRED_HASH);
 }
 
 // ---------------------------------------------------------------- YARDIMCILAR
@@ -56,20 +118,9 @@ function getGuild(guildId) {
   return guild;
 }
 
-/** Discord API'sinden kullanıcının o sunucudaki yetkilerini çeker. */
-async function fetchUserPermissions(guildId, accessToken) {
-  const res = await fetch(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!res.ok) {
-    if (res.status === 404) return null; // sunucuda değil
-    throw new Error(`Discord üye bilgisi alınamadı (${res.status})`);
-  }
-  return res.json();
-}
-
 function requireAuth(req, res, next) {
-  if (req.session && req.session.user) return next();
+  if (isAuthenticated(req)) return next();
+  req.session = null;
   res.status(401).json({ error: 'Giriş yapmalısın.' });
 }
 
@@ -84,83 +135,65 @@ function wrap(handler) {
 
 const MOD_PERMS = PermissionsBitField.Flags;
 
-function permsOf(member) {
-  return new PermissionsBitField(BigInt(member.permissions || 0));
-}
-
-/** İstek atan kullanıcının sunucudaki temsilcisini (member) döndürür. */
+/** Doğrulanmış panel yöneticisi için aktör nesnesi (sunucu sınırını botun kendi yetkileri belirler). */
 async function actorOf(req, guild) {
-  const data = await fetchUserPermissions(req.session.guildId, req.session.accessToken);
-  if (!data) throw new Error('Bu sunucunun üyesi değilsin.');
   const user = req.session.user;
-  const id = data.user ? data.user.id : user.id;
-  const isOwner = guild.ownerId === id;
-  const permissions = isOwner
-    ? new PermissionsBitField(PermissionsBitField.Flags.Administrator)
-    : permsOf(data);
-  const rolePositions = (data.roles || []).map((rid) => guild.roles.cache.get(rid)?.position || 0);
-  const highest = Math.max(isOwner ? 999 : 0, ...rolePositions, 0);
   return {
-    id,
-    user: { id, tag: `${user.username}#${user.discriminator || '0'}`, username: user.username },
-    permissions,
-    roles: { highest: { position: highest }, cache: new Set(data.roles || []) },
-    guildOwner: isOwner
+    id: user.id,
+    user: { id: user.id, tag: `${user.username}#panel`, username: user.username },
+    permissions: new PermissionsBitField(PermissionsBitField.Flags.Administrator),
+    roles: { highest: { position: 999999 }, cache: new Set() },
+    guildOwner: true,
+    panelFounder: true
   };
 }
 
-// ---------------------------------------------------------------- OTURUM
-app.get('/auth/login', (req, res) => {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res
-      .status(500)
-      .send('CLIENT_ID ve CLIENT_SECRET ortam değişkenleri tanımlı değil. Render > Environment bölümünden ekleyip yeniden başlat.');
-  }
+function botInviteUrl() {
+  const appId = CLIENT_ID || (botState.client && botState.client.user ? botState.client.user.id : '');
+  if (!appId) return null;
   const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    response_type: 'code',
-    scope: OAuth2Scopes.Identify + ' ' + OAuth2Scopes.Guilds,
-    prompt: 'none'
+    client_id: appId,
+    permissions: '8',
+    scope: 'bot applications.commands'
   });
-  res.redirect(`https://discord.com/oauth2/authorize?${params}`);
-});
+  return `https://discord.com/oauth2/authorize?${params}`;
+}
 
-app.get('/auth/callback', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.redirect('/?hata=giris-iptal');
-  try {
-    const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: REDIRECT_URI
-      })
+// ---------------------------------------------------------------- OTURUM
+app.get('/auth/login', (req, res) => res.redirect('/'));
+
+app.post('/auth/login', async (req, res) => {
+  if (!ADMIN_USER || !ADMIN_PASS) {
+    return res.status(400).json({
+      error: 'Panel girişi ayarlanmamış. Render > Environment bölümüne ADMIN_USER ve ADMIN_PASS ekle.'
     });
-    if (!tokenRes.ok) throw new Error('Token alınamadı: ' + (await tokenRes.text()));
-    const token = await tokenRes.json();
-
-    const userRes = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: { Authorization: `Bearer ${token.access_token}` }
-    });
-    const user = await userRes.json();
-
-    req.session.accessToken = token.access_token;
-    req.session.user = {
-      id: user.id,
-      username: user.username,
-      globalName: user.global_name,
-      avatar: user.avatar
-    };
-    res.redirect('/');
-  } catch (err) {
-    console.error('[auth]', err);
-    res.redirect('/?hata=' + encodeURIComponent(err.message));
   }
+  const ip = req.ip || 'unknown';
+  const lockedMsg = checkLoginLimit(ip);
+  if (lockedMsg) return res.status(429).json({ error: lockedMsg });
+
+  const { username, password } = req.body || {};
+  const okUser = safeEqual(String(username || '').trim(), ADMIN_USER);
+  const okPass = safeEqual(String(password || ''), ADMIN_PASS);
+
+  if (!okUser || !okPass) {
+    recordFailedLogin(ip);
+    await new Promise((r) => setTimeout(r, 300));
+    console.warn(`[auth] Hatalı giriş denemesi (${ip})`);
+    return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' });
+  }
+
+  loginAttempts.delete(ip);
+  req.session = {
+    user: {
+      id: 'panel-' + ADMIN_USER,
+      username: ADMIN_USER,
+      globalName: ADMIN_USER,
+      avatar: null
+    },
+    credHash: CRED_HASH
+  };
+  res.json({ ok: true, user: req.session.user });
 });
 
 app.post('/auth/logout', (req, res) => {
@@ -169,43 +202,113 @@ app.post('/auth/logout', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  res.json({
-    user: req.session.user || null,
-    configured: Boolean(CLIENT_ID && CLIENT_SECRET && process.env.DISCORD_TOKEN),
-    botReady: botState.ready,
-    botTag: botState.ready ? botState.client.user.tag : null
-  });
+  const loggedIn = isAuthenticated(req);
+  if (req.session && req.session.user && !loggedIn) req.session = null;
+
+  const hasAuthCfg = Boolean(ADMIN_USER && ADMIN_PASS);
+  const hasToken = Boolean(process.env.DISCORD_TOKEN);
+
+  const out = {
+    user: loggedIn ? req.session.user : null,
+    authMode: 'password',
+    configured: hasAuthCfg && hasToken,
+    missingAuth: !hasAuthCfg,
+    missingToken: !hasToken,
+    botReady: botState.ready
+  };
+
+  if (loggedIn) {
+    out.botError = botState.error;
+    out.botTag = botState.ready ? botState.client.user.tag : null;
+    out.inviteUrl = botInviteUrl();
+    out.setup = setupReport();
+  }
+  res.json(out);
 });
 
-/** Kullanıcının botun bulunduğu ve yönetebildiği sunucular. */
+function setupReport() {
+  const checks = [];
+  const add = (ok, title, hint) => checks.push({ ok, title, hint });
+
+  add(Boolean(ADMIN_USER), 'ADMIN_USER tanımlı', 'Render > Environment: ADMIN_USER = panel kullanıcı adın');
+  add(Boolean(ADMIN_PASS), 'ADMIN_PASS tanımlı', 'Render > Environment: ADMIN_PASS = güçlü bir panel şifresi');
+  add(Boolean(process.env.DISCORD_TOKEN), 'DISCORD_TOKEN tanımlı', 'Developer Portal > Bot > Reset Token ile bot tokeni al');
+  add(botState.ready, 'Bot Discord sunucusuna bağlı', botState.error || 'Loglarda "[bot]" satırlarına bak');
+  add(!DEMO_MODE, 'DEMO_MODE kapalı', 'DEMO_MODE=0 olmalı (1 ise sahte veri kullanılır)');
+
+  return {
+    baseUrl: BASE_URL,
+    demoMode: DEMO_MODE,
+    botReady: botState.ready,
+    botError: botState.error,
+    node: process.version,
+    checks
+  };
+}
+
+app.get('/setup', (req, res) => {
+  if (!isAuthenticated(req)) return res.redirect('/');
+  const r = setupReport();
+  const rows = r.checks
+    .map(
+      (c) => `<tr>
+        <td style="font-size:20px">${c.ok ? '✅' : '⚠️'}</td>
+        <td><b>${c.title}</b><div style="color:#8b93ab;font-size:12.5px;margin-top:2px">${c.hint}</div></td>
+      </tr>`
+    )
+    .join('');
+
+  res.type('html').send(`<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kurulum Teşhisi</title>
+  <style>
+    body{font-family:system-ui,'Segoe UI',sans-serif;background:#0b0d13;color:#e8ebf5;padding:24px;line-height:1.6}
+    .wrap{max-width:760px;margin:0 auto}
+    h1{font-size:22px;margin-bottom:6px}
+    .card{background:#161a25;border:1px solid #262c3d;border-radius:14px;padding:20px;margin-top:16px}
+    table{width:100%;border-collapse:collapse}td{padding:9px 4px;border-bottom:1px solid #202636;vertical-align:top}
+    .big{font-size:15px;margin:8px 0}
+    a.btn{display:inline-block;background:#5865f2;color:#fff;padding:11px 18px;border-radius:10px;text-decoration:none;font-weight:600;margin-top:14px}
+    .muted{color:#8b93ab;font-size:12.5px}
+  </style></head><body><div class="wrap">
+    <h1>🔧 Kurulum Teşhisi</h1>
+    <div class="card"><table>${rows}</table><a class="btn" href="/">Panele dön</a></div>
+    <div class="card">
+      <div class="big">Bot durumu</div>
+      <div>${r.botReady ? '🟢 Çevrimiçi' : '🔴 Çevrimdışı'}</div>
+      ${r.botError ? `<div class="muted" style="margin-top:6px">Hata: ${r.botError}</div>` : ''}
+      <div class="muted" style="margin-top:8px">Node: ${r.node} · DEMO_MODE: ${r.demoMode ? 'AÇIK' : 'kapalı'}</div>
+    </div>
+  </div></body></html>`);
+});
+
+/** Botun bulunduğu TÜM sunucular (kurucu her sunucuyu inceleyip yönetebilir). */
 app.get(
   '/api/guilds',
   requireAuth,
   wrap(async (req, res) => {
-    const listRes = await fetch('https://discord.com/api/v10/users/@me/guilds', {
-      headers: { Authorization: `Bearer ${req.session.accessToken}` }
-    });
-    if (!listRes.ok) throw new Error('Sunucu listesi alınamadı.');
-    const userGuilds = await listRes.json();
     const c = client();
-    const botGuilds = c ? c.guilds.cache : new Map();
+    const botGuilds = c && botState.ready ? [...c.guilds.cache.values()] : [];
 
-    const result = userGuilds
-      .filter((g) => botGuilds.has(g.id))
+    const result = botGuilds
       .map((g) => {
-        const botGuild = botGuilds.get(g.id);
-        const userPerms = new PermissionsBitField(BigInt(g.permissions || 0));
-        const canManage = g.owner || userPerms.has(MOD_PERMS.Administrator) || userPerms.has(MOD_PERMS.ManageGuild);
+        const me = g.members.me;
+        const perms = me ? me.permissions : new PermissionsBitField(0n);
+        const isAdmin = perms.has(MOD_PERMS.Administrator);
+        const canManageChannels = perms.has(MOD_PERMS.ManageChannels);
         return {
           id: g.id,
           name: g.name,
-          icon: g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=128` : null,
-          owner: Boolean(g.owner),
-          canManage,
-          memberCount: botGuild ? botGuild.memberCount : null
+          icon: g.iconURL({ size: 128 }),
+          ownerId: g.ownerId,
+          owner: g.ownerId === req.session.user.id,
+          canManage: isAdmin || canManageChannels || perms.has(MOD_PERMS.ManageGuild),
+          botIsAdmin: isAdmin,
+          memberCount: g.memberCount,
+          channelCount: g.channels.cache.size
         };
       })
-      .sort((a, b) => Number(b.canManage) - Number(a.canManage) || a.name.localeCompare(b.name));
+      .sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0) || a.name.localeCompare(b.name, 'tr'));
 
     res.json({ guilds: result });
   })
@@ -485,6 +588,32 @@ app.post('/api/channels/delete', requireAuth, wrap(async (req, res) => {
   res.json(result);
 }));
 
+app.post('/api/channels/bulk/rename', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const { items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) throw new Error('Düzenlenecek kanal seçilmedi.');
+  if (items.length > 50) throw new Error('Tek seferde en fazla 50 kanal gönderilebilir.');
+  const result = await mod.bulkRenameChannels(guild, actor, items);
+  if (result.ok && result.updated > 0) {
+    settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal adı değiştirdi (${result.updated} kanal)`);
+  }
+  res.json(result);
+}));
+
+app.post('/api/channels/bulk/delete', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const { channelIds, deleteChildren } = req.body || {};
+  if (!Array.isArray(channelIds) || !channelIds.length) throw new Error('Silinecek kanal seçilmedi.');
+  if (channelIds.length > 50) throw new Error('Tek seferde en fazla 50 kanal gönderilebilir.');
+  const result = await mod.bulkDeleteChannels(guild, actor, channelIds, Boolean(deleteChildren));
+  if (result.ok && result.deleted > 0) {
+    settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal sildi (${result.deleted} kanal)`);
+  }
+  res.json(result);
+}));
+
 // ---------------------------------------------------------------- ROLLER
 app.get(
   '/api/roles',
@@ -672,21 +801,13 @@ app.post(
 );
 
 // ---------------------------------------------------------------- BOT BİLGİLERİ
-app.get('/api/bot/invite', (req, res) => {
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    permissions: '8',
-    scope: 'bot applications.commands'
-  });
-  res.json({ url: `https://discord.com/oauth2/authorize?${params}` });
+app.get('/api/bot/invite', requireAuth, (req, res) => {
+  res.json({ url: botInviteUrl() });
 });
 
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
-    botReady: botState.ready,
-    botError: botState.error,
-    uptime: process.uptime(),
     version: require('./package.json').version
   });
 });
@@ -699,7 +820,13 @@ if (DEMO_MODE) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[web] Panel çalışıyor: ${BASE_URL} (port ${PORT})${DEMO_MODE ? ' [DEMO]' : ''}`);
-  if (!DEMO_MODE) startBot();
+  if (!DEMO_MODE) {
+    if (!ADMIN_USER || !ADMIN_PASS) {
+      console.warn('[auth] UYARI: ADMIN_USER / ADMIN_PASS tanımlı değil — panele giriş yapılamaz!');
+    } else {
+      console.log(`[auth] Kullanıcı adı/şifre girişi aktif (kullanıcı: ${ADMIN_USER})`);
+    }
+    startBot();
+  }
 });
-
 module.exports = { app };

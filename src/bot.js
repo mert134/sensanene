@@ -396,7 +396,7 @@ cmd(['espri', 'joke'], 'Rastgele espri', '!espri', async (ctx) => {
 
 // --- Panel
 cmd(['panel'], 'Web paneli linki', '!panel', async (ctx) => {
-  const url = process.env.PUBLIC_URL || '';
+  const url = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
   await ctx.message.reply({
     embeds: [resultEmbed({ title: '🖥️ Yönetim Paneli', description: url ? `Panel: ${url}` : 'Panel adresi tanımlı değil. `PUBLIC_URL` ortam değişkenini ekle.', color: COLOR.main })]
   });

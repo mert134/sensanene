@@ -8,6 +8,7 @@ const state = {
   guilds: [],
   members: [],
   channels: [],
+  selectedChannels: new Set(),
   roles: [],
   selectedMember: null,
   settings: null
@@ -33,9 +34,10 @@ async function api(path, options = {}) {
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
-  if (res.status === 401) {
-    showLogin();
-    throw new Error('Oturum sona erdi, tekrar giriş yap.');
+  if (res.status === 401 || res.status === 403) {
+    const data = await res.json().catch(() => ({}));
+    showLogin(data.error || 'Oturum sona erdi, tekrar giriş yap.');
+    throw new Error(data.error || 'Erişim reddedildi.');
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Hata (${res.status})`);
@@ -87,19 +89,62 @@ function showLogin(warning) {
   if (warning) $('#loginWarn').innerHTML = `<div class="warn-box">${esc(warning)}</div>`;
 }
 
+function copyText(txt, okMsg = 'Kopyalandı') {
+  if (!navigator.clipboard) return toast(txt, 'warn');
+  navigator.clipboard.writeText(txt).then(() => toast(okMsg, 'ok')).catch(() => toast('Kopyalanamadı', 'err'));
+}
+
+function togglePass() {
+  const inp = $('#loginPass');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  const btn = $('#loginBtn');
+  const username = ($('#loginUser')?.value || '').trim();
+  const password = $('#loginPass')?.value || '';
+  if (!username || !password) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Kontrol ediliyor…'; }
+  try {
+    await api('/auth/login', { method: 'POST', body: { username, password } });
+    $('#loginWarn').innerHTML = '';
+    if ($('#loginPass')) $('#loginPass').value = '';
+    await boot();
+  } catch (err) {
+    renderLogin(state.me, err.message || 'Giriş başarısız.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔓 Giriş Yap'; }
+  }
+}
+
+function renderLogin(me, hata = '') {
+  showLogin();
+  const box = $('#loginWarn');
+  if (!box) return;
+  let html = '';
+  if (hata) {
+    html += `<div class="warn-box" style="background:rgba(237,66,69,.14);border-color:rgba(237,66,69,.45);color:#ff9c9e"><b>⛔</b> ${esc(hata)}</div>`;
+  }
+  if (me && !me.configured) {
+    const eksikler = [];
+    if (me.missingAuth) eksikler.push('<code>ADMIN_USER</code> ve <code>ADMIN_PASS</code>');
+    if (me.missingToken) eksikler.push('<code>DISCORD_TOKEN</code>');
+    html += `<div class="warn-box">
+      <b>Kurulum tamamlanmadı.</b><br />
+      Render &gt; Environment bölümüne ekle: ${eksikler.join(', ')}
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+
 function showApp() {
   $('#login').style.display = 'none';
   $('#app').style.display = 'block';
 }
 
 async function boot() {
-  const params = new URLSearchParams(location.search);
-  if (params.get('hata')) {
-    showLogin('Giriş başarısız: ' + params.get('hata'));
-    history.replaceState({}, '', '/');
-    return;
-  }
-
   let me;
   try {
     me = await api('/api/me');
@@ -108,18 +153,7 @@ async function boot() {
   }
   state.me = me;
 
-  if (!me.configured) {
-    showLogin();
-    $('#loginWarn').innerHTML = `<div class="warn-box">
-      <b>Kurulum tamamlanmadı.</b><br />
-      Render &gt; Environment bölümüne şu değişkenleri ekle:<br />
-      <code>DISCORD_TOKEN</code>, <code>CLIENT_ID</code>, <code>CLIENT_SECRET</code>,<br />
-      <code>PUBLIC_URL</code>, <code>SESSION_SECRET</code>
-    </div>`;
-    return;
-  }
-
-  if (!me.user) return showLogin();
+  if (!me.user) return renderLogin(me);
 
   showApp();
   $('#userPill').textContent = me.user.globalName || me.user.username;
@@ -143,13 +177,12 @@ async function loadGuilds() {
   try {
     const { guilds } = await api('/api/guilds');
     state.guilds = guilds;
-    const manageable = guilds.filter((g) => g.canManage);
     if (!guilds.length) {
       $('#guildName').textContent = 'Sunucu yok';
       return showWelcome();
     }
-    if (manageable.length === 1) {
-      await selectGuild(manageable[0]);
+    if (guilds.length === 1) {
+      await selectGuild(guilds[0]);
     } else {
       openGuildPicker();
     }
@@ -185,33 +218,80 @@ function openGuildPicker() {
   if (!state.guilds.length) return;
   const list = el('div', { class: 'channel-list' });
   for (const g of state.guilds) {
+    const meta = [g.memberCount ? `${g.memberCount} üye` : '', g.channelCount ? `${g.channelCount} kanal` : ''].filter(Boolean).join(' · ');
     list.append(
       el('button', { class: 'channel-row', style: 'cursor:pointer', onclick: () => selectGuild(g) }, [
         g.icon ? el('img', { src: g.icon, style: 'width:32px;height:32px;border-radius:10px' }) : el('div', { class: 'ico', text: '🏠' }),
-        el('div', { class: 'nm', html: `${esc(g.name)}${g.memberCount ? `<small>${g.memberCount} üye</small>` : ''}` }),
-        g.canManage ? el('span', { class: 'badge green', text: 'yönetilebilir' }) : el('span', { class: 'badge red', text: 'yetki yok' })
+        el('div', { class: 'nm', html: `${esc(g.name)}${meta ? `<small>${esc(meta)}</small>` : ''}` }),
+        g.botIsAdmin
+          ? el('span', { class: 'badge green', text: 'bot: yönetici' })
+          : g.canManage
+            ? el('span', { class: 'badge', text: 'bot: kısmi yetki' })
+            : el('span', { class: 'badge red', text: 'bot yetkisi yok' })
       ])
     );
   }
   openModal([
-    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Sunucu Seç' }), el('div', { class: 'sub', text: 'Botun bulunduğu sunucular' })])]),
+    el('div', { class: 'modal-head' }, [
+      el('div', {}, [el('h3', { text: `Sunucu Seç (${state.guilds.length})` }), el('div', { class: 'sub', text: 'Botun bulunduğu tüm sunucuları inceleyip yönetebilirsin' })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    ]),
     list
   ]);
 }
 
 function showWelcome() {
-  $('#pageTitle').textContent = 'Sunucu bulunamadı';
-  $('#pageSub').textContent = 'Botu bir sunucuya eklemen gerekiyor';
+  const me = state.me || {};
   for (const s of document.querySelectorAll('.section')) s.classList.remove('active');
   $('#sec-dashboard').classList.add('active');
+
+  if (!me.botReady) {
+    const err = me.botError || (me.setup && me.setup.botError) || 'Bot henüz Discord sunucusuna giriş yapamadı.';
+    const intentsErr = /intent/i.test(err);
+    $('#pageTitle').textContent = 'Bot Bağlanamadı';
+    $('#pageSub').textContent = 'Discord bot ayarlarını tamamlaman gerekiyor';
+    $('#sec-dashboard').innerHTML = `
+      <div class="card" style="max-width:640px;padding:30px 24px">
+        <div style="font-size:40px;margin-bottom:10px">🔴</div>
+        <h3 style="font-size:18px;margin-bottom:8px">Bot şu an çevrimdışı</h3>
+        <div class="warn-box">${esc(err)}</div>
+        ${intentsErr ? `
+          <p style="font-size:13.5px;line-height:1.8;color:var(--text);margin-bottom:14px">
+            <b>Çözüm (30 saniye):</b><br />
+            1. Discord Developer Portal &gt; uygulaman &gt; <b>Bot</b> sekmesine gir.<br />
+            2. Aşağıdaki <b>Privileged Gateway Intents</b> bölümünden şu ikisini aç:<br />
+            &nbsp;&nbsp;• <b>SERVER MEMBERS INTENT</b> → ON<br />
+            &nbsp;&nbsp;• <b>MESSAGE CONTENT INTENT</b> → ON<br />
+            3. <b>Save Changes</b>'e bas, ardından Render'da <b>Manual Deploy</b> yap.
+          </p>
+        ` : `
+          <p style="font-size:13.5px;line-height:1.8;color:var(--muted);margin-bottom:14px">
+            Render &gt; Environment bölümündeki <code>DISCORD_TOKEN</code> değerini ve Developer Portal &gt; Bot sekmesindeki Intent anahtarlarını kontrol et.
+          </p>
+        `}
+        <div class="row" style="max-width:360px">
+          <a class="btn btn-primary" href="/setup">🔧 Kurulum Teşhisi</a>
+          <button class="btn" onclick="location.reload()">↻ Tekrar Dene</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  $('#pageTitle').textContent = 'Sunucu bulunamadı';
+  $('#pageSub').textContent = 'Botu bir sunucuya eklemen gerekiyor';
+  const inv = me.inviteUrl;
   $('#sec-dashboard').innerHTML = `
     <div class="card" style="text-align:center;padding:50px 20px">
       <div style="font-size:46px;margin-bottom:14px">🤖</div>
-      <h3 style="justify-content:center;font-size:18px">Botu henüz bir sunucuya eklemedin</h3>
+      <h3 style="justify-content:center;font-size:18px">Bot çevrimiçi, ama henüz sunucuna eklenmemiş</h3>
       <p style="color:var(--muted);font-size:13.5px;line-height:1.8;margin:12px 0 22px">
-        Botu yönetici olarak eklediğin sunucu burada otomatik görünecek.
+        Aşağıdan botu sunucuna ekle (yönetici izniyle). Ekledikten sonra <b>Yenile</b>'ye bas.
       </p>
-      <button class="btn btn-primary" onclick="copyInvite()">🔗 Davet Linkini Kopyala</button>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        ${inv ? `<a class="btn btn-primary" href="${esc(inv)}" target="_blank" rel="noopener">➕ Botu Sunucuya Ekle</a>` : ''}
+        <button class="btn" onclick="copyInvite()">🔗 Linki Kopyala</button>
+        <button class="btn btn-ok" onclick="location.reload()">↻ Yenile</button>
+      </div>
     </div>`;
 }
 
@@ -282,21 +362,22 @@ async function loadDashboard() {
       <div><b>Gecikme:</b> ${d.bot.ping ?? '—'} ms</div>
       <div><b>Roller:</b> ${d.counts.roles} · <b>Emoji:</b> ${d.counts.emojis}</div>`;
 
-    const perms = d.user.permissions;
+    const botPerms = d.bot.permissions || [];
+    const hasBotAdmin = botPerms.includes('Administrator');
     const keyPerms = [
       ['Administrator', 'Yönetici'],
+      ['ManageChannels', 'Kanal Yönet'],
+      ['ManageRoles', 'Rol Yönet'],
       ['BanMembers', 'Üye Yasakla'],
       ['KickMembers', 'Üye At'],
       ['ModerateMembers', 'Sustur'],
-      ['ManageChannels', 'Kanal Yönet'],
-      ['ManageRoles', 'Rol Yönet'],
       ['ManageGuild', 'Sunucu Yönet'],
       ['ManageMessages', 'Mesaj Yönet']
     ];
     $('#myPerms').innerHTML =
-      (d.user.isOwner ? '<div><span class="badge green">Sunucu Sahibi</span></div>' : '') +
+      `<div style="margin-bottom:6px"><span class="badge green">👑 Panel Kurucusu</span> <span class="hint" style="display:inline">Aşağıdakiler botun bu sunucudaki yetkileridir:</span></div>` +
       keyPerms
-        .map(([k, label]) => `<span class="role-chip">${perms.includes(k) ? '✅' : '❌'} ${label}</span>`)
+        .map(([k, label]) => `<span class="role-chip">${hasBotAdmin || botPerms.includes(k) ? '✅' : '❌'} ${label}</span>`)
         .join('');
 
     renderLogs($('#recentLogs'), d.recentLogs);
@@ -574,25 +655,85 @@ async function loadChannels() {
     const [d, c] = await Promise.all([api('/api/channels'), api('/api/settings')]);
     state.channels = d.channels;
     state.settings = c;
+    const valid = new Set(d.channels.map((ch) => ch.id));
+    state.selectedChannels = new Set([...state.selectedChannels].filter((id) => valid.has(id)));
+    if ($('#channelCount')) $('#channelCount').textContent = d.channels.length;
     renderChannels();
   } catch (err) {
     $('#channelList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
   }
 }
 
+function updateBulkBar() {
+  const bar = $('#bulkActions');
+  const cnt = $('#bulkCount');
+  if (!bar || !cnt) return;
+  const n = state.selectedChannels.size;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+  cnt.textContent = `${n} seçili`;
+}
+
+function getFilteredChannels() {
+  const q = ($('#channelSearch')?.value || '').trim().toLowerCase();
+  if (!q) return state.channels;
+  return state.channels.filter((c) => c.name.toLowerCase().includes(q) || (c.topic && c.topic.toLowerCase().includes(q)));
+}
+
+function selectChannelsBy(mode) {
+  if (mode === 'none') {
+    state.selectedChannels.clear();
+  } else if (mode === 'all') {
+    state.channels.forEach((c) => state.selectedChannels.add(c.id));
+  } else if (mode === 'visible') {
+    getFilteredChannels().forEach((c) => state.selectedChannels.add(c.id));
+  } else if (mode === 'voice') {
+    state.channels.filter((c) => c.type === 'voice' || c.type === 'stage').forEach((c) => state.selectedChannels.add(c.id));
+  } else if (mode === 'text') {
+    state.channels.filter((c) => c.type === 'text' || c.type === 'announcement' || c.type === 'forum').forEach((c) => state.selectedChannels.add(c.id));
+  } else if (mode === 'category') {
+    state.channels.filter((c) => c.type === 'category').forEach((c) => state.selectedChannels.add(c.id));
+  }
+  renderChannels();
+}
+
+function toggleChannelSelect(id, checked) {
+  if (checked) state.selectedChannels.add(id);
+  else state.selectedChannels.delete(id);
+  updateBulkBar();
+}
+
+function toggleCategoryGroup(catId) {
+  const ids = [catId, ...state.channels.filter((c) => c.parentId === catId).map((c) => c.id)];
+  const allSelected = ids.every((id) => state.selectedChannels.has(id));
+  ids.forEach((id) => (allSelected ? state.selectedChannels.delete(id) : state.selectedChannels.add(id)));
+  renderChannels();
+}
+
 function renderChannels() {
   const box = $('#channelList');
   box.innerHTML = '';
+  updateBulkBar();
   if (!state.channels.length) {
     box.innerHTML = '<div class="empty">Kanal yok.</div>';
     return;
   }
 
+  const q = ($('#channelSearch')?.value || '').trim().toLowerCase();
+  const matches = (ch) => !q || ch.name.toLowerCase().includes(q) || (ch.topic && ch.topic.toLowerCase().includes(q));
+
   const categories = state.channels.filter((c) => c.type === 'category');
   const others = state.channels.filter((c) => c.type !== 'category');
 
+  const makeCheck = (id) => {
+    const cb = el('input', { type: 'checkbox', class: 'ch-check' });
+    cb.checked = state.selectedChannels.has(id);
+    cb.addEventListener('change', (e) => toggleChannelSelect(id, e.target.checked));
+    return cb;
+  };
+
   const makeRow = (ch) =>
     el('div', { class: 'channel-row' }, [
+      makeCheck(ch.id),
       el('span', { class: 'ico', text: CHANNEL_ICONS[ch.type] || '❔' }),
       el('div', { class: 'nm', html: `${esc(ch.name)}<small>${ch.type}${ch.topic ? ' · ' + esc(ch.topic.slice(0, 60)) : ''}</small>` }),
       el('div', { class: 'acts' }, [
@@ -601,15 +742,235 @@ function renderChannels() {
       ])
     ]);
 
-  const uncategorized = others.filter((c) => !c.parentId || !categories.some((cat) => cat.id === c.parentId));
+  const uncategorized = others.filter((c) => (!c.parentId || !categories.some((cat) => cat.id === c.parentId)) && matches(c));
   if (uncategorized.length) {
     box.append(el('div', { class: 'cat-head', text: 'Kategorisiz' }));
     uncategorized.forEach((ch) => box.append(makeRow(ch)));
   }
+
   for (const cat of categories) {
-    box.append(el('div', { class: 'cat-head', text: `📂 ${cat.name}` }));
-    others.filter((c) => c.parentId === cat.id).forEach((ch) => box.append(makeRow(ch)));
+    const kids = others.filter((c) => c.parentId === cat.id && matches(c));
+    if (q && !matches(cat) && !kids.length) continue;
+    const groupIds = [cat.id, ...others.filter((c) => c.parentId === cat.id).map((c) => c.id)];
+    const groupAllSelected = groupIds.length > 0 && groupIds.every((id) => state.selectedChannels.has(id));
+    box.append(
+      el('div', { class: 'cat-head' }, [
+        el('div', { class: 'cat-left' }, [
+          makeCheck(cat.id),
+          el('span', { text: `📂 ${cat.name} (${others.filter((c) => c.parentId === cat.id).length})` }),
+          el('button', { class: 'chip', style: 'padding:2px 8px;font-size:11px', text: groupAllSelected ? 'Grubu bırak' : 'Grubu seç', onclick: () => toggleCategoryGroup(cat.id) })
+        ]),
+        el('div', { class: 'acts', style: 'display:flex;gap:6px' }, [
+          el('button', { class: 'btn btn-sm', text: '✏️ Düzenle', onclick: () => editChannel(cat) }),
+          el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Kategoriyi sil', onclick: () => deleteChannel(cat) })
+        ])
+      ])
+    );
+    kids.forEach((ch) => box.append(makeRow(ch)));
   }
+
+  if (!box.children.length) {
+    box.innerHTML = '<div class="empty">Aramana uyan kanal bulunamadı.</div>';
+  }
+}
+
+function computeBulkRenameItems(selectedList, mode, val1, val2) {
+  return selectedList.map((ch, idx) => {
+    let next = ch.name;
+    if (mode === 'prefix') next = `${val1}${ch.name}`;
+    else if (mode === 'suffix') next = `${ch.name}${val1}`;
+    else if (mode === 'replace') next = val1 ? ch.name.split(val1).join(val2) : ch.name;
+    else if (mode === 'set') next = val1.replaceAll('{n}', String(idx + 1)).replaceAll('{ad}', ch.name);
+    return { channelId: ch.id, oldName: ch.name, name: next.trim().slice(0, 100) };
+  });
+}
+
+function openBulkRename() {
+  const selectedList = state.channels.filter((c) => state.selectedChannels.has(c.id));
+  if (!selectedList.length) return toast('Önce kanal veya kategori seç', 'warn');
+
+  let mode = 'prefix';
+  const modeLabels = [
+    ['prefix', 'Başına ekle'],
+    ['suffix', 'Sonuna ekle'],
+    ['replace', 'Bul & Değiştir'],
+    ['set', 'Hepsini aynı ad yap']
+  ];
+
+  const chipsWrap = el('div', { class: 'chip-row', style: 'margin-bottom:12px' });
+  const input1Label = el('label', { class: 'f', text: 'Başına eklenecek yazı' });
+  const input1 = el('input', { class: 'input', id: 'bulkVal1', placeholder: 'örn: yakında-' });
+  const input2Wrap = el('div', { style: 'display:none;margin-top:10px' }, [
+    el('label', { class: 'f', text: 'Yerine yazılacak (boş bırakırsan siler)' }),
+    el('input', { class: 'input', id: 'bulkVal2', placeholder: 'yeni kelime' })
+  ]);
+  const hintEl = el('div', { class: 'hint', text: 'Örn: "yakında-" yazarsan genel-sohbet → yakında-genel-sohbet olur.' });
+  const previewBox = el('div', { class: 'preview-box', style: 'margin-top:12px' });
+  const progressBox = el('div', { class: 'hint', style: 'margin-top:8px;font-weight:600' });
+  const applyBtn = el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: `✏️ ${selectedList.length} Öğeye Uygula` });
+
+  function updatePreview() {
+    const v1 = input1.value;
+    const v2 = input2Wrap.querySelector('#bulkVal2').value;
+    const items = computeBulkRenameItems(selectedList, mode, v1, v2);
+    previewBox.innerHTML = '';
+    const sample = items.slice(0, 8);
+    for (const it of sample) {
+      previewBox.append(
+        el('div', { class: 'preview-row' }, [
+          el('span', { class: 'old', text: it.oldName }),
+          el('span', { text: '→' }),
+          el('span', { class: 'new', text: it.name || '(boş)' })
+        ])
+      );
+    }
+    if (items.length > 8) {
+      previewBox.append(el('div', { class: 'hint', text: `… ve ${items.length - 8} öğe daha` }));
+    }
+  }
+
+  function setMode(m) {
+    mode = m;
+    [...chipsWrap.children].forEach((b) => b.classList.toggle('sel', b.dataset.mode === m));
+    input2Wrap.style.display = m === 'replace' ? 'block' : 'none';
+    if (m === 'prefix') {
+      input1Label.textContent = 'Başına eklenecek yazı';
+      input1.placeholder = 'örn: yakında-';
+      hintEl.textContent = 'Örn: "yakında-" yazarsan genel-sohbet → yakında-genel-sohbet olur.';
+    } else if (m === 'suffix') {
+      input1Label.textContent = 'Sonuna eklenecek yazı';
+      input1.placeholder = 'örn: -yakında';
+      hintEl.textContent = 'Örn: "-yakında" yazarsan sohbet → sohbet-yakında olur.';
+    } else if (m === 'replace') {
+      input1Label.textContent = 'Değiştirilecek kelime';
+      input1.placeholder = 'aranan kelime';
+      hintEl.textContent = 'Seçilen tüm kanalların adında bu kısmı değiştirir (ikinci kutu boşsa o kısmı siler).';
+    } else if (m === 'set') {
+      input1Label.textContent = 'Yeni isim';
+      input1.placeholder = 'yakında veya yakında-{n}';
+      hintEl.textContent = 'Numaralandırmak için {n} kullanabilirsin: yakında-{n} → yakında-1, yakında-2…';
+    }
+    updatePreview();
+  }
+
+  for (const [key, label] of modeLabels) {
+    const b = el('button', { class: 'chip', text: label, 'data-mode': key, onclick: () => setMode(key) });
+    chipsWrap.append(b);
+  }
+  input1.addEventListener('input', updatePreview);
+  input2Wrap.querySelector('#bulkVal2').addEventListener('input', updatePreview);
+
+  applyBtn.addEventListener('click', async () => {
+    const v1 = input1.value;
+    const v2 = input2Wrap.querySelector('#bulkVal2').value;
+    if (!v1 && mode !== 'replace') return toast('Bir yazı gir', 'warn');
+    if (mode === 'replace' && !v1) return toast('Aranacak kelimeyi gir', 'warn');
+    const items = computeBulkRenameItems(selectedList, mode, v1, v2).map(({ channelId, name }) => ({ channelId, name }));
+    if (items.some((x) => !x.name)) return toast('Bazı isimler boş kalıyor, kontrol et', 'warn');
+
+    applyBtn.disabled = true;
+    let updated = 0;
+    let skipped = 0;
+    let failedCount = 0;
+    try {
+      for (let i = 0; i < items.length; i += 20) {
+        const chunk = items.slice(i, i + 20);
+        progressBox.textContent = `⏳ İşleniyor: ${Math.min(i + chunk.length, items.length)} / ${items.length}…`;
+        const res = await api('/api/channels/bulk/rename', { method: 'POST', body: { items: chunk } });
+        if (!res.ok) { toast(res.error, 'err'); break; }
+        updated += res.updated || 0;
+        skipped += res.skipped || 0;
+        failedCount += (res.failed || []).length;
+      }
+      toast(`${updated} güncellendi${skipped ? `, ${skipped} aynıydı` : ''}${failedCount ? `, ${failedCount} hata` : ''}`, failedCount ? 'warn' : 'ok');
+      closeModal();
+      loadChannels();
+    } catch (err) {
+      toast(err.message, 'err');
+      applyBtn.disabled = false;
+    }
+  });
+
+  setMode('prefix');
+  openModal([
+    el('div', { class: 'modal-head' }, [
+      el('div', {}, [el('h3', { text: 'Toplu İsim Değiştir' }), el('div', { class: 'sub', text: `${selectedList.length} kanal / kategori seçili` })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    ]),
+    chipsWrap,
+    input1Label,
+    input1,
+    input2Wrap,
+    hintEl,
+    el('label', { class: 'f', style: 'margin-top:12px', text: 'Önizleme' }),
+    previewBox,
+    progressBox,
+    applyBtn
+  ]);
+}
+
+function openBulkDelete() {
+  const selectedList = state.channels.filter((c) => state.selectedChannels.has(c.id));
+  if (!selectedList.length) return toast('Önce silinecek kanal seç', 'warn');
+
+  const hasCat = selectedList.some((c) => c.type === 'category');
+  const childCb = el('input', { type: 'checkbox', class: 'ch-check', id: 'bulkDelChildren' });
+  const progressBox = el('div', { class: 'hint', style: 'margin-top:8px;font-weight:600' });
+  const delBtn = el('button', { class: 'btn btn-danger', text: `🗑 Evet, ${selectedList.length} Öğeyi Sil` });
+
+  const body = [
+    el('div', { class: 'modal-head' }, [
+      el('div', {}, [el('h3', { text: `${selectedList.length} Öğeyi Sil?` }), el('div', { class: 'sub', text: 'Bu işlem geri alınamaz' })]),
+      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    ]),
+    el('p', { style: 'font-size:13.5px;color:var(--muted);line-height:1.7;margin-bottom:10px', html: `Seçilen <b>${selectedList.length}</b> kanal/kategori ve mesaj geçmişi kalıcı olarak silinecek.` }),
+    el('div', { class: 'preview-box', style: 'margin-bottom:12px' },
+      selectedList.slice(0, 12).map((c) => el('div', { text: `${CHANNEL_ICONS[c.type] || '•'} ${c.name}` })).concat(
+        selectedList.length > 12 ? [el('div', { class: 'hint', text: `… ve ${selectedList.length - 12} öğe daha` })] : []
+      )
+    )
+  ];
+
+  if (hasCat) {
+    body.push(
+      el('label', { style: 'display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;cursor:pointer' }, [
+        childCb,
+        el('span', { text: 'Seçili kategorilerin içindeki tüm kanalları da sil' })
+      ])
+    );
+  }
+
+  delBtn.addEventListener('click', async () => {
+    delBtn.disabled = true;
+    const ids = selectedList.map((c) => c.id);
+    const deleteChildren = Boolean(hasCat && childCb.checked);
+    let deleted = 0;
+    let failedCount = 0;
+    try {
+      for (let i = 0; i < ids.length; i += 20) {
+        const chunk = ids.slice(i, i + 20);
+        progressBox.textContent = `⏳ Siliniyor: ${Math.min(i + chunk.length, ids.length)} / ${ids.length}…`;
+        const res = await api('/api/channels/bulk/delete', { method: 'POST', body: { channelIds: chunk, deleteChildren } });
+        if (!res.ok) { toast(res.error, 'err'); break; }
+        deleted += res.deleted || 0;
+        failedCount += (res.failed || []).length;
+      }
+      state.selectedChannels.clear();
+      toast(`${deleted} kanal/kategori silindi${failedCount ? `, ${failedCount} silinemedi` : ''}`, failedCount ? 'warn' : 'ok');
+      closeModal();
+      loadChannels();
+    } catch (err) {
+      toast(err.message, 'err');
+      delBtn.disabled = false;
+    }
+  });
+
+  body.push(progressBox);
+  body.push(el('div', { class: 'row', style: 'margin-top:14px' }, [
+    el('button', { class: 'btn', text: 'Vazgeç', onclick: closeModal }),
+    delBtn
+  ]));
+  openModal(body);
 }
 
 function editChannel(ch) {
