@@ -29,10 +29,12 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 **Eğlence & ekonomi (hem panelde hem Discord'da)**
 - 🎰 Slot makinesi (animasyonlu, ağırlıklı semboller), 🪙 yazı tura, 🎲 zar
 - Günlük ödül, cüzdan, sunucu sıralaması
-- Discord komutları: `!slot`, `!yazıtura`, `!zar`, `!günlük`, `!bakiye`, `!sıralama`, `!şans`, `!8ball`, `!espri`, `!yardım`
+- Modern Discord `/` komutları: `/slot`, `/yazıtura`, `/zar`, `/günlük`, `/bakiye`, `/sıralama`, `/şans`, `/8ball`, `/espri`, `/yardım`
+- Komutlar her sunucuya otomatik kaydolur; Discord seçenekleri ve kullanıcı/rol seçicileri doğrudan gösterir
+- Oyunlarda animasyonlu GIF'ler, markalı zengin kartlar, sonuç rengi, zaman ve bakiye bilgisi
 
 **Sunucu ayarları**
-- Log kanalı, hoş geldin mesajı + kanalı, otomatik rol, komut ön eki
+- Log kanalı, hoş geldin mesajı + kanalı ve otomatik rol
 - Son 200 işlem kaydı (panelde görünür)
 
 ## 🚀 Render'da yayına alma
@@ -62,7 +64,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - **Bot rolü en üstte olmalı.** Discord'da yönetilecek üyelerin rolü botun rolünden düşük olmalı; aksi halde bot işlem yapamaz (panel bunu hata mesajıyla söyler).
 - **Render ücretsiz planı 15 dk trafik olmazsa uyur.** Uyku sırasında bot da çevrimdışı olur. Çözüm: ücretli plan ya da [UptimeRobot](https://uptimerobot.com) ile `/health` adresine 5 dakikalık ping.
 - **Veri kalıcılığı:** JSON verisi (`data/db.json`) diske yazılır. Render ücretsiz planda disk kalıcı değildir; kalıcı olsun istersen Render'da **Disk** ekleyip `DATA_DIR=/data` ver (Blueprint'te hazır).
-- Panel oturumu **`ADMIN_USER` ve `ADMIN_PASS` kullanıcı adı/şifre girişi** ile korunur; hatalı denemelere karşı geçici kilitleme bulunur. Discord sunucusundaki `!ban`, `!kick` gibi sohbet komutlarında ise her kullanıcının kendi Discord rol/yetki sınırları geçerlidir.
+- Panel oturumu **`ADMIN_USER` ve `ADMIN_PASS` kullanıcı adı/şifre girişi** ile korunur; hatalı denemelere karşı geçici kilitleme bulunur. Discord sunucusundaki `/ban`, `/kick` gibi slash komutlarında ise her kullanıcının kendi Discord rol/yetki sınırları geçerlidir.
 
 ## 🧪 Yerel çalıştırma
 
