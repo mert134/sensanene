@@ -362,8 +362,8 @@ cmd(['slot', 'slots', 'kumar'], 'Slot makinesi', '/slot 100', async (ctx) => {
   await ctx.message.reply({
     embeds: [gameEmbed(ctx, {
       type: 'slot',
-      title: won ? '🎰 JACKPOT • Kazandın!' : '🎰 Tur tamamlandı',
-      description: `## ┃ ${line} ┃\n${won ? `✨ **x${spin.multiplier} çarpan!** Neon kasa ödeme yaptı.` : '💨 Bu tur kasa kazandı. Bir sonraki dönüş senin olabilir!'}`,
+      title: won ? 'JACKPOT • Üçlü eşleşme!' : 'Slot sonucu',
+      description: `## ┃ ${line} ┃\n${won ? `**Üçü de aynı! x${spin.multiplier} ödeme kazandın.**` : '**Kazanmak için üç sembolün de aynı olması gerekiyor.**'}`,
       color: won ? COLOR.gold : COLOR.err,
       fields: [
         { name: '💳 Bahis', value: `**${bet}** coin`, inline: true },

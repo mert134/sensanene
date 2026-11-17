@@ -21,11 +21,11 @@ function weightedPick() {
 function payoutMultiplier(reels) {
   const [a, b, c] = reels;
   if (a === b && b === c) {
-    const table = { '7️⃣': 50, '💎': 22, '⭐': 14, '🔔': 10, '🍉': 8, '🍇': 6, '🍋': 5, '🍒': 4 };
+    // Yalnızca üç aynı sembol ödeme yapar. Çarpanlar yaklaşık %80 RTP sağlar.
+    const table = { '7️⃣': 500, '💎': 150, '⭐': 70, '🔔': 45, '🍉': 30, '🍇': 22, '🍋': 18, '🍒': 14 };
     return table[a] || 4;
   }
-  // İki aynı sembol: bahsin 1.25 katı (hafif kâr, uzun vadede ev avantajı)
-  if (a === b || b === c || a === c) return 1.25;
+  // İki sembol aynı olsa bile kazanılmaz; OwO tarzı üçlü eşleşme gerekir.
   return 0;
 }
 
