@@ -1096,10 +1096,12 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
   const stop = () => { stopRequested = true; };
   stopActiveMessageBatch = stop;
 
+  const failedChannels = new Set();
   try {
-    outer: for (const channel of channels) {
-      for (let repeat = 0; repeat < repeatCount; repeat += 1) {
-        if (stopRequested) break outer;
+    for (let repeat = 0; repeat < repeatCount; repeat += 1) {
+      if (stopRequested) break;
+      const targets = channels.filter((channel) => !failedChannels.has(channel.id));
+      await Promise.all(targets.map(async (channel) => {
         attempted += 1;
         try {
           const result = await api('/api/channels/message', {
@@ -1117,11 +1119,10 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
           sent += 1;
         } catch (err) {
           failures.push({ channel: channel.name, error: err.message || 'Mesaj gönderilemedi.' });
-          onProgress?.({ sent, attempted, total, channel, failures });
-          break;
+          failedChannels.add(channel.id);
         }
         onProgress?.({ sent, attempted, total, channel, failures });
-      }
+      }));
     }
   } finally {
     if (stopActiveMessageBatch === stop) stopActiveMessageBatch = null;
@@ -1250,7 +1251,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Aynı mesaj ${channels.length} seçili kanala, belirttiğin sayı kadar gönderilir. Etiket ayarları her tekrara uygulanır; Discord hız sınırları geçerlidir.` }),
+    el('div', { class: 'hint', text: `Her tekrar ${channels.length} seçili kanala aynı anda gönderilir. Etiket ayarları her tekrara uygulanır; Discord hız sınırları geçerlidir.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
