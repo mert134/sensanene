@@ -209,30 +209,6 @@
       <section class="section" id="sec-games">
         <div class="grid cols-2">
           <div>
-            <div class="slot-machine">
-              <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap">
-                <span class="coin-badge">💰 <span id="slotBalance">0</span> coin</span>
-                <span class="pill">En az 10 coin</span>
-              </div>
-              <div class="reels">
-                <div class="reel" id="reel0">🍒</div>
-                <div class="reel" id="reel1">🍋</div>
-                <div class="reel" id="reel2">🍇</div>
-              </div>
-              <div class="slot-msg" id="slotMsg">Bahsini seç ve çevir!</div>
-              <div class="row" style="margin:16px 0 12px">
-                <input class="input" id="slotBet" type="number" value="50" min="10" style="text-align:center" />
-              </div>
-              <div class="chip-row" style="justify-content:center;margin-bottom:14px">
-                <button class="chip" onclick="setBet(10)">10</button>
-                <button class="chip" onclick="setBet(50)">50</button>
-                <button class="chip" onclick="setBet(100)">100</button>
-                <button class="chip" onclick="setBet('yarı')">Yarısı</button>
-                <button class="chip" onclick="setBet('hepsi')">Hepsi</button>
-              </div>
-              <button class="btn btn-primary btn-block" id="spinBtn" onclick="playSlot()" style="padding:14px;font-size:15px">🎰 ÇEVİR</button>
-            </div>
-
             <div class="card" style="margin-top:16px">
               <h3>🪙 Diğer Oyunlar</h3>
               <div class="row" style="margin-bottom:10px">
@@ -266,7 +242,7 @@
             <div class="card" style="margin-top:16px">
               <h3>💬 Discord Komutları</h3>
               <div style="font-size:12.5px;line-height:2;color:var(--muted)">
-                <span class="mono">!slot 100</span> · <span class="mono">!yazıtura 50 yazı</span><br />
+                <span class="mono">/yazıtura 50 yazı</span><br />
                 <span class="mono">!zar 4 50</span> · <span class="mono">!günlük</span><br />
                 <span class="mono">!bakiye</span> · <span class="mono">!sıralama</span><br />
                 <span class="mono">!şans @üye</span> · <span class="mono">!8ball soru</span><br />

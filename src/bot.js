@@ -121,7 +121,6 @@ function parseAmount(input, balance) {
 }
 
 const GAME_MEDIA = {
-  slot: { name: 'lores-slot.gif', path: path.join(__dirname, '../public/assets/games/lores-slot.gif') },
   coin: { name: 'lores-coin.gif', path: path.join(__dirname, '../public/assets/games/lores-coin.gif') },
   dice: { name: 'lores-dice.gif', path: path.join(__dirname, '../public/assets/games/lores-dice.gif') }
 };
@@ -187,7 +186,7 @@ cmd(['yardım', 'help', 'komutlar'], 'Tüm komutları listeler', '/yardım', asy
     },
     {
       name: '🎰 Eğlence & Ekonomi',
-      value: '`/slot` • `/yazıtura` • `/zar`\n`/günlük` • `/bakiye` • `/sıralama`'
+      value: '`/yazıtura` • `/zar`\n`/günlük` • `/bakiye` • `/sıralama`'
     },
     {
       name: '💞 Sosyal Etkileşim',
@@ -351,30 +350,6 @@ cmd(['sıralama', 'siralama', 'top', 'leaderboard'], 'En zenginler', '/sıralama
 });
 
 // --- Oyunlar
-cmd(['slot', 'slots', 'kumar'], 'Slot makinesi', '/slot 100', async (ctx) => {
-  const bet = parseAmount(ctx.args[0], eco.getCoins(ctx.guild.id, ctx.author.id));
-  const start = games.placeBet(ctx.guild.id, ctx.author.id, bet);
-  if (start.error) return ctx.message.reply(`⛔ ${start.error}`);
-  const spin = games.spin(bet);
-  const balance = games.settle(ctx.guild.id, ctx.author.id, bet, spin.payout, spin.multiplier > 0);
-  const line = spin.reels.join(' | ');
-  const won = spin.multiplier > 0;
-  await ctx.message.reply({
-    embeds: [gameEmbed(ctx, {
-      type: 'slot',
-      title: won ? 'JACKPOT • Üçlü eşleşme!' : 'Slot sonucu',
-      description: `## ┃ ${line} ┃\n${won ? `**Üçü de aynı! x${spin.multiplier} ödeme kazandın.**` : '**Kazanmak için üç sembolün de aynı olması gerekiyor.**'}`,
-      color: won ? COLOR.gold : COLOR.err,
-      fields: [
-        { name: '💳 Bahis', value: `**${bet}** coin`, inline: true },
-        { name: won ? '💰 Ödeme' : '📉 Kayıp', value: won ? `**+${spin.payout}** coin` : `**-${bet}** coin`, inline: true },
-        { name: '👛 Yeni Bakiye', value: `**${balance}** coin`, inline: true }
-      ]
-    })],
-    files: [gameFile('slot')]
-  });
-});
-
 cmd(['yazıtura', 'yazitura', 'cf'], 'Yazı tura', '/yazıtura 100 yazı', async (ctx) => {
   const bet = parseAmount(ctx.args[0], eco.getCoins(ctx.guild.id, ctx.author.id));
   const pick = (ctx.args[1] || '').toLowerCase();
@@ -444,26 +419,17 @@ cmd(['espri', 'joke'], 'Rastgele espri', '/espri', async (ctx) => {
     'Bir byte neden utangaç? Çünkü biraz **bit**kindi. 😄',
     'Mühendis eve neden giremez? Kapıyı **debug** etmeye çalışır. 🔧',
     'Discord botu neden yorulmaz? Çünkü her şeyi **async** yapıyor. ⚡',
-    'Neden slot makinesi hep kazanır? Çünkü **olasılık** onun tarafında. 🎰',
     'İnternet neden üşür? Çünkü çok fazla **cache** var. ❄️'
   ];
   await ctx.message.reply({ embeds: [resultEmbed({ title: '😄 Lores Mizah Servisi', description: jokes[Math.floor(Math.random() * jokes.length)], color: 0xeb459e, thumbnail: ctx.client.user.displayAvatarURL() })] });
 });
 
-// --- Panel
-cmd(['panel'], 'Web paneli linki', '/panel', async (ctx) => {
-  const url = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
-  await ctx.message.reply({
-    embeds: [resultEmbed({ title: '🖥️ Yönetim Paneli', description: url ? `Panel: ${url}` : 'Panel adresi tanımlı değil. `PUBLIC_URL` ortam değişkenini ekle.', color: COLOR.main })]
-  });
-});
 
 // ------------------------------------------------------------------ SLASH KOMUTLARI
 // Sunucu bazlı kayıt anında görünür; global komutlarda görülebilen 1 saate varan bekleme yoktur.
 const slashCommands = [
   new SlashCommandBuilder().setName('yardım').setDescription('Lores Bot komut merkezini gösterir'),
   new SlashCommandBuilder().setName('ping').setDescription('Bot ve Discord gecikmesini gösterir'),
-  new SlashCommandBuilder().setName('panel').setDescription('Güvenli web kontrol panelini gösterir'),
   new SlashCommandBuilder().setName('ban').setDescription('Bir üyeyi sunucudan yasaklar')
     .addUserOption(o => o.setName('üye').setDescription('Yasaklanacak üye').setRequired(true))
     .addStringOption(o => o.setName('sebep').setDescription('İşlem sebebi').setMaxLength(300)),
@@ -504,8 +470,6 @@ const slashCommands = [
   new SlashCommandBuilder().setName('bakiye').setDescription('Coin cüzdanını veya bir üyenin profilini gösterir')
     .addUserOption(o => o.setName('üye').setDescription('Bakiyesi gösterilecek üye')),
   new SlashCommandBuilder().setName('sıralama').setDescription('Sunucunun en zengin 10 üyesini gösterir'),
-  new SlashCommandBuilder().setName('slot').setDescription('Animasyonlu slot makinesinde şansını dene')
-    .addIntegerOption(o => o.setName('bahis').setDescription('En az 10 coin').setRequired(true).setMinValue(10)),
   new SlashCommandBuilder().setName('yazıtura').setDescription('Yazı tura at ve bahsini ikiye katla')
     .addIntegerOption(o => o.setName('bahis').setDescription('En az 10 coin').setRequired(true).setMinValue(10))
     .addStringOption(o => o.setName('seçim').setDescription('Tarafını seç').setRequired(true)
@@ -548,7 +512,6 @@ function slashPayload(interaction) {
   else if (name === 'kanal-oluştur') args = [interaction.options.getString('isim'), interaction.options.getString('tür')];
   else if (name === 'kanal-ad') args = [interaction.options.getString('isim')];
   else if (['rol-ver', 'rol-al'].includes(name)) args = [`<@${user.id}>`, `<@&${role.id}>`];
-  else if (name === 'slot') args = [String(interaction.options.getInteger('bahis'))];
   else if (name === 'yazıtura') args = [String(interaction.options.getInteger('bahis')), interaction.options.getString('seçim')];
   else if (name === 'zar') args = [String(interaction.options.getInteger('tahmin')), String(interaction.options.getInteger('bahis'))];
   else if (name === '8ball') { rest = interaction.options.getString('soru'); args = rest.split(/\s+/); }

@@ -861,20 +861,6 @@ app.get(
   })
 );
 
-app.post(
-  '/api/play/slot',
-  requireAuth,
-  wrap(async (req, res) => {
-    const guildId = req.session.guildId;
-    const userId = req.session.user.id;
-    const { bet } = req.body || {};
-    const start = games.placeBet(guildId, userId, Math.floor(Number(bet)));
-    if (start.error) return res.json({ error: start.error });
-    const spin = games.spin(Math.floor(Number(bet)));
-    const balance = games.settle(guildId, userId, Math.floor(Number(bet)), spin.payout, spin.multiplier > 0);
-    res.json({ ...spin, bet: Math.floor(Number(bet)), balance });
-  })
-);
 
 app.post(
   '/api/play/coinflip',

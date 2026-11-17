@@ -313,8 +313,10 @@ async function createChannel(guild, actor, { name, type = 'text', categoryId = n
     category: ChannelType.GuildCategory,
     announcement: ChannelType.GuildAnnouncement
   };
-  const typeId = types[type];
-  if (!typeId) return { ok: false, error: 'Geçersiz kanal türü.' };
+  const normalizedType = String(type || 'text').trim().toLowerCase();
+  const typeId = types[normalizedType];
+  // GuildText değeri 0'dır; `!typeId` kontrolü metin kanalını yanlışlıkla geçersiz sayar.
+  if (typeId === undefined) return { ok: false, error: 'Geçersiz kanal türü.' };
   try {
     const created = await guild.channels.create({
       name: clean,

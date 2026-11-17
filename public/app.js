@@ -312,7 +312,7 @@ const TITLES = {
   members: ['Üyeler & Moderasyon', 'Bir üyeye tıkla, işlemi seç'],
   channels: ['Kanallar', 'Oluştur, düzenle, sil'],
   roles: ['Roller', 'Rol oluştur, ver, al'],
-  games: ['Oyunlar', 'Slot, yazı tura, zar ve ekonomi'],
+  games: ['Oyunlar', 'Yazı tura, zar ve ekonomi'],
   settings: ['Ayarlar', 'Bot davranışını yapılandır'],
   logs: ['Kayıtlar', 'Son 100 işlem']
 };
@@ -1287,7 +1287,6 @@ async function deleteRole(role) {
 async function loadGame() {
   try {
     const d = await api('/api/play/balance');
-    $('#slotBalance').textContent = d.coins;
     $('#myStats').innerHTML = `
       <div><b>Coin:</b> ${d.coins}</div>
       <div><b>Oynanan oyun:</b> ${d.games}</div>
@@ -1312,68 +1311,6 @@ async function loadGame() {
   } catch (err) {
     toast(err.message, 'err');
   }
-}
-
-function setBet(v) {
-  const bal = Number($('#slotBalance').textContent) || 0;
-  if (v === 'hepsi') $('#slotBet').value = bal;
-  else if (v === 'yarı') $('#slotBet').value = Math.floor(bal / 2);
-  else $('#slotBet').value = v;
-}
-
-const SPIN_CHARS = ['🍒', '🍋', '🍇', '🍉', '🔔', '⭐', '💎', '7️⃣'];
-
-async function playSlot() {
-  const bet = Number($('#slotBet').value);
-  if (!bet || bet < 10) return toast('Bahis en az 10 coin olmalı', 'warn');
-
-  const btn = $('#spinBtn');
-  btn.disabled = true;
-  const reels = [$('#reel0'), $('#reel1'), $('#reel2')];
-  reels.forEach((r) => { r.classList.add('spin'); r.classList.remove('win'); });
-  $('#slotMsg').className = 'slot-msg';
-  $('#slotMsg').textContent = 'Çevriliyor…';
-
-  const ticker = setInterval(() => {
-    reels.forEach((r) => { r.textContent = SPIN_CHARS[Math.floor(Math.random() * SPIN_CHARS.length)]; });
-  }, 80);
-
-  try {
-    const res = await api('/api/play/slot', { method: 'POST', body: { bet } });
-    await new Promise((r) => setTimeout(r, 700));
-    clearInterval(ticker);
-
-    if (res.error) {
-      reels.forEach((r) => r.classList.remove('spin'));
-      $('#slotMsg').textContent = res.error;
-      $('#slotMsg').className = 'slot-msg lose';
-      btn.disabled = false;
-      return;
-    }
-
-    reels.forEach((r, i) => {
-      r.classList.remove('spin');
-      r.textContent = res.reels[i];
-      if (res.multiplier > 0) r.classList.add('win');
-    });
-
-    if (res.multiplier > 0) {
-      $('#slotMsg').className = 'slot-msg win';
-      $('#slotMsg').textContent = `🎉 x${res.multiplier} → +${res.payout} coin!`;
-      toast(`Kazandın! +${res.payout} coin`, 'ok');
-    } else {
-      $('#slotMsg').className = 'slot-msg lose';
-      $('#slotMsg').textContent = `Kaybettin. -${res.bet} coin`;
-    }
-    $('#slotBalance').textContent = res.balance;
-    loadGame();
-  } catch (err) {
-    clearInterval(ticker);
-    reels.forEach((r) => r.classList.remove('spin'));
-    $('#slotMsg').textContent = err.message;
-    toast(err.message, 'err');
-  }
-  btn.disabled = false;
 }
 
 async function playCoinflip(pick) {
