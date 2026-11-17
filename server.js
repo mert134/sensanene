@@ -635,10 +635,15 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
   if (!content) throw new Error('Mesaj boş olamaz.');
   const botPerms = channel.permissionsFor(guild.members.me);
   if (!botPerms?.has(PermissionsBitField.Flags.SendMessages)) throw new Error('Botun bu kanalda mesaj gönderme yetkisi yok.');
-  const sent = await channel.send({
-    content,
-    allowedMentions: req.body.allowMentions ? { parse: ['users', 'roles'] } : { parse: [] }
-  });
+  const allowMentions = Boolean(req.body.allowMentions);
+  const allowEveryone = Boolean(req.body.allowEveryone);
+  if (allowEveryone && /@(everyone|here)\b/i.test(content) && !botPerms.has(PermissionsBitField.Flags.MentionEveryone)) {
+    throw new Error('Botun `@everyone`, `@here` veya tüm rolleri etiketleme yetkisi yok.');
+  }
+  const parse = [];
+  if (allowMentions) parse.push('users', 'roles');
+  if (allowEveryone) parse.push('everyone');
+  const sent = await channel.send({ content, allowedMentions: { parse } });
   settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalına panelden mesaj gönderdi`);
   res.json({ ok: true, message: 'Mesaj gönderildi.', messageId: sent.id });
 }));

@@ -1051,7 +1051,10 @@ function editChannel(ch) {
         el('span', { class: `lock-status ${ch.locked ? 'locked' : ''}`, text: ch.locked ? 'Yazmaya kapalı' : 'Yazmaya açık' })
       ]),
       el('textarea', { class: 'input', id: 'channelMessage', rows: '4', maxlength: '2000', placeholder: 'Gönderilecek mesajı yaz…' }),
-      el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions' }), el('span', { text: 'Kullanıcı ve rol etiketlerine izin ver' })]),
+      el('div', { class: 'mention-options' }, [
+        el('label', { class: 'mention-option' }, [el('input', { type: 'checkbox', id: 'channelAllowMentions' }), el('span', { text: 'Kullanıcı ve rol etiketlerini etkinleştir' })]),
+        el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowEveryone' }), el('span', { text: '@everyone ve @here etiketlerini etkinleştir' })])
+      ]),
       el('div', { class: 'row' }, [
         el('button', { class: 'btn btn-primary', text: 'Mesajı gönder', onclick: () => sendChannelMessage(ch) }),
         el('button', { class: `btn ${ch.locked ? 'btn-ok' : 'btn-danger'}`, text: ch.locked ? 'Kanal kilidini aç' : 'Kanalı kilitle', onclick: () => toggleChannelLock(ch) })
@@ -1070,7 +1073,10 @@ async function sendChannelMessage(ch) {
   const content = (input?.value || '').trim();
   if (!content) return toast('Gönderilecek mesajı yaz', 'warn');
   try {
-    const r = await api('/api/channels/message', { method: 'POST', body: { channelId: ch.id, content, allowMentions: Boolean($('#channelAllowMentions')?.checked) } });
+    const allowMentions = Boolean($('#channelAllowMentions')?.checked);
+    const allowEveryone = Boolean($('#channelAllowEveryone')?.checked);
+    if (allowEveryone && /@(everyone|here)\b/i.test(content) && !confirm('Bu mesaj sunucudaki çok sayıda kişiye bildirim gönderebilir. Devam edilsin mi?')) return;
+    const r = await api('/api/channels/message', { method: 'POST', body: { channelId: ch.id, content, allowMentions, allowEveryone } });
     if (!r.ok) return toast(r.error || 'Mesaj gönderilemedi', 'err');
     input.value = '';
     toast('Mesaj kanala gönderildi', 'ok');
