@@ -87,6 +87,42 @@ function showLogin(warning) {
   if (warning) $('#loginWarn').innerHTML = `<div class="warn-box">${esc(warning)}</div>`;
 }
 
+function copyText(txt, okMsg = 'Kopyalandı') {
+  if (!navigator.clipboard) return toast(txt, 'warn');
+  navigator.clipboard.writeText(txt).then(() => toast(okMsg, 'ok')).catch(() => toast('Kopyalanamadı', 'err'));
+}
+
+function renderLogin(me, hata = '') {
+  showLogin();
+  const box = $('#loginWarn');
+  if (!box) return;
+  const errHtml = hata
+    ? `<div class="warn-box" style="background:rgba(237,66,69,.14);border-color:rgba(237,66,69,.45);color:#ff9c9e"><b>Giriş başarısız:</b> ${esc(hata)}</div>`
+    : '';
+  if (!me || !me.redirectUri) {
+    box.innerHTML = errHtml;
+    return;
+  }
+  const local = /localhost|127\.0\.0\.1/i.test(me.redirectUri || '');
+  const warn = me.setup && me.setup.checks ? me.setup.checks.filter((c) => !c.ok) : [];
+  box.innerHTML = `
+    ${errHtml}
+    <div class="warn-box" style="background:rgba(88,101,242,.12);border-color:rgba(88,101,242,.4);color:#c3caff">
+      <b>Giriş yapmadan önce Discord ayarı:</b><br />
+      Developer Portal &gt; <b>OAuth2</b> &gt; <b>Redirects</b> bölümüne şu adresi <b>birebir</b> ekle:
+      <div style="display:flex;align-items:center;gap:6px;margin:8px 0;flex-wrap:wrap">
+        <code style="word-break:break-all;flex:1">${esc(me.redirectUri)}</code>
+        <button type="button" class="btn btn-sm" id="copyRedirBtn">📋 Kopyala</button>
+      </div>
+      <span style="font-size:12px;opacity:.85">Sonda <code>/</code> olmadan, <code>https://</code> ile. Yanlışsa "Geçersiz OAuth2 redirect_url" hatası alırsın.</span>
+      ${local ? `<div style="margin-top:8px;color:#ffc966">⚠️ Panel adresi yerel görünüyor. Render'da <code>PUBLIC_URL</code> değerini gerçek adresinle gir.</div>` : ''}
+      <div style="margin-top:10px"><a href="/setup" style="color:#c3caff">🔧 Kurulum teşhisi</a></div>
+    </div>
+    ${warn.length ? `<div class="warn-box">Dikkat: ${warn.map((c) => esc(c.title)).join(' · ')}</div>` : ''}`;
+  const btn = $('#copyRedirBtn');
+  if (btn) btn.onclick = () => copyText(me.redirectUri, 'Redirect adresi kopyalandı!');
+}
+
 function showApp() {
   $('#login').style.display = 'none';
   $('#app').style.display = 'block';
@@ -94,11 +130,8 @@ function showApp() {
 
 async function boot() {
   const params = new URLSearchParams(location.search);
-  if (params.get('hata')) {
-    showLogin('Giriş başarısız: ' + params.get('hata'));
-    history.replaceState({}, '', '/');
-    return;
-  }
+  const hata = params.get('hata');
+  if (hata) history.replaceState({}, '', '/');
 
   let me;
   try {
@@ -110,16 +143,21 @@ async function boot() {
 
   if (!me.configured) {
     showLogin();
+    const missing = (me.setup ? me.setup.checks.filter((c) => !c.ok) : []).map((c) => `<li>${esc(c.title)} — <span style="opacity:.75">${esc(c.hint)}</span></li>`).join('');
     $('#loginWarn').innerHTML = `<div class="warn-box">
       <b>Kurulum tamamlanmadı.</b><br />
       Render &gt; Environment bölümüne şu değişkenleri ekle:<br />
       <code>DISCORD_TOKEN</code>, <code>CLIENT_ID</code>, <code>CLIENT_SECRET</code>,<br />
-      <code>PUBLIC_URL</code>, <code>SESSION_SECRET</code>
+      <code>SESSION_SECRET</code>${missing ? `<ul style="margin:10px 0 0 16px;padding:0;font-size:12.5px">${missing}</ul>` : ''}
+      <div style="margin-top:10px"><a href="/setup">🔧 Kurulum teşhisini aç</a></div>
     </div>`;
     return;
   }
 
-  if (!me.user) return showLogin();
+  if (!me.user || hata) {
+    if (hata) toast('Giriş başarısız: ' + hata, 'err');
+    return renderLogin(me, hata);
+  }
 
   showApp();
   $('#userPill').textContent = me.user.globalName || me.user.username;
@@ -200,18 +238,57 @@ function openGuildPicker() {
 }
 
 function showWelcome() {
-  $('#pageTitle').textContent = 'Sunucu bulunamadı';
-  $('#pageSub').textContent = 'Botu bir sunucuya eklemen gerekiyor';
+  const me = state.me || {};
   for (const s of document.querySelectorAll('.section')) s.classList.remove('active');
   $('#sec-dashboard').classList.add('active');
+
+  if (!me.botReady) {
+    const err = me.botError || (me.setup && me.setup.botError) || 'Bot henüz Discord sunucusuna giriş yapamadı.';
+    const intentsErr = /intent/i.test(err);
+    $('#pageTitle').textContent = 'Bot Bağlanamadı';
+    $('#pageSub').textContent = 'Discord bot ayarlarını tamamlaman gerekiyor';
+    $('#sec-dashboard').innerHTML = `
+      <div class="card" style="max-width:640px;padding:30px 24px">
+        <div style="font-size:40px;margin-bottom:10px">🔴</div>
+        <h3 style="font-size:18px;margin-bottom:8px">Bot şu an çevrimdışı</h3>
+        <div class="warn-box">${esc(err)}</div>
+        ${intentsErr ? `
+          <p style="font-size:13.5px;line-height:1.8;color:var(--text);margin-bottom:14px">
+            <b>Çözüm (30 saniye):</b><br />
+            1. Discord Developer Portal &gt; uygulaman &gt; <b>Bot</b> sekmesine gir.<br />
+            2. Aşağıdaki <b>Privileged Gateway Intents</b> bölümünden şu ikisini aç:<br />
+            &nbsp;&nbsp;• <b>SERVER MEMBERS INTENT</b> → ON<br />
+            &nbsp;&nbsp;• <b>MESSAGE CONTENT INTENT</b> → ON<br />
+            3. <b>Save Changes</b>'e bas, ardından Render'da <b>Manual Deploy</b> yap.
+          </p>
+        ` : `
+          <p style="font-size:13.5px;line-height:1.8;color:var(--muted);margin-bottom:14px">
+            Render &gt; Environment bölümündeki <code>DISCORD_TOKEN</code> değerini ve Developer Portal &gt; Bot sekmesindeki Intent anahtarlarını kontrol et.
+          </p>
+        `}
+        <div class="row" style="max-width:360px">
+          <a class="btn btn-primary" href="/setup">🔧 Kurulum Teşhisi</a>
+          <button class="btn" onclick="location.reload()">↻ Tekrar Dene</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  $('#pageTitle').textContent = 'Sunucu bulunamadı';
+  $('#pageSub').textContent = 'Botu bir sunucuya eklemen gerekiyor';
+  const inv = me.inviteUrl;
   $('#sec-dashboard').innerHTML = `
     <div class="card" style="text-align:center;padding:50px 20px">
       <div style="font-size:46px;margin-bottom:14px">🤖</div>
-      <h3 style="justify-content:center;font-size:18px">Botu henüz bir sunucuya eklemedin</h3>
+      <h3 style="justify-content:center;font-size:18px">Bot çevrimiçi, ama henüz sunucuna eklenmemiş</h3>
       <p style="color:var(--muted);font-size:13.5px;line-height:1.8;margin:12px 0 22px">
-        Botu yönetici olarak eklediğin sunucu burada otomatik görünecek.
+        Aşağıdan botu sunucuna ekle (yönetici izniyle). Ekledikten sonra <b>Yenile</b>'ye bas.
       </p>
-      <button class="btn btn-primary" onclick="copyInvite()">🔗 Davet Linkini Kopyala</button>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        ${inv ? `<a class="btn btn-primary" href="${esc(inv)}" target="_blank" rel="noopener">➕ Botu Sunucuya Ekle</a>` : ''}
+        <button class="btn" onclick="copyInvite()">🔗 Linki Kopyala</button>
+        <button class="btn btn-ok" onclick="location.reload()">↻ Yenile</button>
+      </div>
     </div>`;
 }
 
@@ -607,7 +684,15 @@ function renderChannels() {
     uncategorized.forEach((ch) => box.append(makeRow(ch)));
   }
   for (const cat of categories) {
-    box.append(el('div', { class: 'cat-head', text: `📂 ${cat.name}` }));
+    box.append(
+      el('div', { class: 'cat-head' }, [
+        el('span', { text: `📂 ${cat.name}` }),
+        el('div', { class: 'acts', style: 'display:flex;gap:6px' }, [
+          el('button', { class: 'btn btn-sm', text: '✏️ Düzenle', onclick: () => editChannel(cat) }),
+          el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Kategoriyi sil', onclick: () => deleteChannel(cat) })
+        ])
+      ])
+    );
     others.filter((c) => c.parentId === cat.id).forEach((ch) => box.append(makeRow(ch)));
   }
 }

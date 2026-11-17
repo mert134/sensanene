@@ -10,7 +10,7 @@ const { db } = require('./store');
 
 const GUILD = { id: 'demo-guild', name: 'Demo Sunucu', ownerId: 'u1' };
 
-const members = [
+let members = [
   { id: 'u1', username: 'kaptan', displayName: 'Kaptan', bot: false, muted: false, warnings: 0, role: 'Kurucu', color: '#f1c40f', joinedAt: Date.now() - 8.64e7 * 210, createdAt: Date.now() - 8.64e7 * 900 },
   { id: 'u2', username: 'ayse.dev', displayName: 'Ayşe', bot: false, muted: false, warnings: 1, role: 'Moderatör', color: '#2ecc71', joinedAt: Date.now() - 8.64e7 * 120, createdAt: Date.now() - 8.64e7 * 700 },
   { id: 'u3', username: 'mehmet_42', displayName: 'Mehmet', bot: false, muted: true, warnings: 3, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 40, createdAt: Date.now() - 8.64e7 * 400 },

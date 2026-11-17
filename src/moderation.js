@@ -228,7 +228,14 @@ async function warn(guild, actor, userId, reason = '') {
   }
   const count = db.warnings[guild.id][userId].length;
   if (count >= 3 && guild.members.me.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-    await mute(guild, { user: { tag: 'Sistem' }, permissions: PermissionsBitField.Flags.Administrator, id: 'system', roles: { highest: { position: 99 } } }, userId, 30 * 60 * 1000, '3 uyarı sınırı');
+    const botTop = guild.members.me?.roles?.highest?.position || 99;
+    const sysActor = {
+      id: 'system',
+      user: { tag: 'Sistem' },
+      permissions: new PermissionsBitField(PermissionsBitField.Flags.Administrator),
+      roles: { highest: { position: botTop } }
+    };
+    await mute(guild, sysActor, userId, 30 * 60 * 1000, '3 uyarı sınırı');
   }
   return { ok: true, count, message: `<@${userId}> uyarıldı (toplam ${count}).` };
 }

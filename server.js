@@ -18,11 +18,41 @@ const { db } = require('./src/store');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const CLIENT_ID = process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.CLIENT_SECRET || process.env.DISCORD_CLIENT_SECRET || '';
-const BASE_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const CLIENT_ID = (process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '').trim();
+const CLIENT_SECRET = (process.env.CLIENT_SECRET || process.env.DISCORD_CLIENT_SECRET || '').trim();
+
+/**
+ * Panel adresini bul. Discord OAuth2 "redirect_uri" birebir eşleşme istediği için
+ * PUBLIC_URL yanlış/boşsa Render'ın kendi verdiği RENDER_EXTERNAL_URL'e düşeriz.
+ * Böylece "Geçersiz OAuth2 redirect_url" hatası en aza iner.
+ */
+function normalizeBaseUrl(raw) {
+  let u = String(raw || '').trim();
+  if (!u) return '';
+  u = u.replace(/\/auth\/callback\/?$/i, '').replace(/\/+$/, '');
+  if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u;
+}
+
+function detectBaseUrl(port) {
+  const explicit = normalizeBaseUrl(process.env.PUBLIC_URL);
+  const renderUrl = normalizeBaseUrl(process.env.RENDER_EXTERNAL_URL);
+  const renderHost = String(process.env.RENDER_EXTERNAL_HOSTNAME || '').trim().replace(/\/+$/, '');
+  const isBadExplicit = (u) => /localhost|127\.0\.0\.1|dashboard\.render\.com|servis-adin/i.test(u);
+
+  if (explicit && !isBadExplicit(explicit)) return { url: explicit, source: 'PUBLIC_URL' };
+  if (renderUrl) return { url: renderUrl, source: 'RENDER_EXTERNAL_URL (otomatik)' };
+  if (renderHost) return { url: `https://${renderHost}`, source: 'RENDER_EXTERNAL_HOSTNAME (otomatik)' };
+  if (explicit) return { url: explicit, source: 'PUBLIC_URL (yerel)' };
+  return { url: `http://localhost:${port}`, source: 'varsayılan (yerel)' };
+}
+
+const base = detectBaseUrl(PORT);
+const BASE_URL = base.url;
+const BASE_URL_SOURCE = base.source;
 const REDIRECT_URI = `${BASE_URL}/auth/callback`;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'degistir-beni-' + CLIENT_ID;
+const SESSION_SECRET = (process.env.SESSION_SECRET || 'degistir-beni-' + CLIENT_ID).trim();
+const HAS_RENDER = Boolean(process.env.RENDER_EXTERNAL_URL || process.env.RENDER_EXTERNAL_HOSTNAME);
 
 app.use(express.json());
 app.set('trust proxy', 1);
@@ -112,23 +142,26 @@ async function actorOf(req, guild) {
 // ---------------------------------------------------------------- OTURUM
 app.get('/auth/login', (req, res) => {
   if (!CLIENT_ID || !CLIENT_SECRET) {
+    const missing = [!CLIENT_ID && 'CLIENT_ID', !CLIENT_SECRET && 'CLIENT_SECRET'].filter(Boolean).join(', ');
     return res
       .status(500)
-      .send('CLIENT_ID ve CLIENT_SECRET ortam değişkenleri tanımlı değil. Render > Environment bölümünden ekleyip yeniden başlat.');
+      .send(`Eksik ortam değişkeni: ${missing}. Render > Environment bölümünden ekleyip Save Changes'e bas, deploy bitince tekrar dene. Teşhis: /setup`);
   }
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
-    scope: OAuth2Scopes.Identify + ' ' + OAuth2Scopes.Guilds,
-    prompt: 'none'
+    scope: OAuth2Scopes.Identify + ' ' + OAuth2Scopes.Guilds
   });
   res.redirect(`https://discord.com/oauth2/authorize?${params}`);
 });
 
 app.get('/auth/callback', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.redirect('/?hata=giris-iptal');
+  const { code, error, error_description } = req.query;
+  if (!code) {
+    const msg = error_description || error || 'Giriş iptal edildi.';
+    return res.redirect('/?hata=' + encodeURIComponent(msg));
+  }
   try {
     const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
       method: 'POST',
@@ -168,13 +201,109 @@ app.post('/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+function botInviteUrl() {
+  if (!CLIENT_ID) return null;
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    permissions: '8',
+    scope: 'bot applications.commands'
+  });
+  return `https://discord.com/oauth2/authorize?${params}`;
+}
+
 app.get('/api/me', (req, res) => {
   res.json({
     user: req.session.user || null,
     configured: Boolean(CLIENT_ID && CLIENT_SECRET && process.env.DISCORD_TOKEN),
     botReady: botState.ready,
-    botTag: botState.ready ? botState.client.user.tag : null
+    botError: botState.error,
+    botTag: botState.ready ? botState.client.user.tag : null,
+    inviteUrl: botInviteUrl(),
+    redirectUri: REDIRECT_URI,
+    setup: setupReport()
   });
+});
+
+/**
+ * Kurulum teşhisi: Discord OAuth2 "Geçersiz redirect_uri" hatası ve bot bağlantı
+ * sorunlarını anlamak için. Sır (token/secret) değerleri ASLA döndürülmez.
+ */
+function setupReport() {
+  const checks = [];
+  const add = (ok, title, hint) => checks.push({ ok, title, hint });
+
+  add(Boolean(CLIENT_ID), 'CLIENT_ID tanımlı', 'Render > Environment: CLIENT_ID = Discord uygulama ID');
+  add(Boolean(CLIENT_SECRET), 'CLIENT_SECRET tanımlı', 'Render > Environment: CLIENT_SECRET = Discord gizli anahtar');
+  add(Boolean(process.env.DISCORD_TOKEN), 'DISCORD_TOKEN tanımlı', 'Developer Portal > Bot > Reset Token ile token al');
+  add(BASE_URL.startsWith('https://'), 'Panel adresi https', `Şu an: ${BASE_URL} — PUBLIC_URL'i https://... şeklinde gir`);
+  add(!/localhost|127\.0\.0\.1/i.test(BASE_URL), 'Panel adresi herkese açık', 'PUBLIC_URL boş kalmış; Render adresini gir ya da Render otomatik algılamasına bırak');
+  add(process.env.SESSION_SECRET !== undefined && String(process.env.SESSION_SECRET).length >= 16, 'SESSION_SECRET güçlü', 'En az 16 karakter rastgele bir değer gir');
+  add(Boolean(process.env.PUBLIC_URL), 'PUBLIC_URL elle ayarlı', 'Elle ayarlamak zorunlu değil; Render adresi otomatik de algılanır');
+  add(botState.ready, 'Bot Discord sunucusuna bağlı', botState.error || 'Loglarda "[bot]" satırlarına bak');
+  add(!DEMO_MODE, 'DEMO_MODE kapalı', 'DEMO_MODE=0 olmalı (1 ise sahte veri kullanılır)');
+
+  return {
+    baseUrl: BASE_URL,
+    baseUrlSource: BASE_URL_SOURCE,
+    redirectUri: REDIRECT_URI,
+    demoMode: DEMO_MODE,
+    botReady: botState.ready,
+    botError: botState.error,
+    node: process.version,
+    checks
+  };
+}
+
+// Kurulum teşhis sayfası — giriş gerektirmez, sır göstermez.
+app.get('/setup', (req, res) => {
+  const r = setupReport();
+  const rows = r.checks
+    .map(
+      (c) => `<tr>
+        <td style="font-size:20px">${c.ok ? '✅' : '⚠️'}</td>
+        <td><b>${c.title}</b><div style="color:#8b93ab;font-size:12.5px;margin-top:2px">${c.hint}</div></td>
+      </tr>`
+    )
+    .join('');
+
+  res.type('html').send(`<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kurulum Teşhisi</title>
+  <style>
+    body{font-family:system-ui,'Segoe UI',sans-serif;background:#0b0d13;color:#e8ebf5;padding:24px;line-height:1.6}
+    .wrap{max-width:760px;margin:0 auto}
+    h1{font-size:22px;margin-bottom:6px}
+    .card{background:#161a25;border:1px solid #262c3d;border-radius:14px;padding:20px;margin-top:16px}
+    code{background:#0f1219;border:1px solid #262c3d;padding:2px 7px;border-radius:6px;font-size:12.5px;word-break:break-all}
+    table{width:100%;border-collapse:collapse}td{padding:9px 4px;border-bottom:1px solid #202636;vertical-align:top}
+    .big{font-size:15px;margin:8px 0}
+    a.btn{display:inline-block;background:#5865f2;color:#fff;padding:11px 18px;border-radius:10px;text-decoration:none;font-weight:600;margin-top:14px}
+    .muted{color:#8b93ab;font-size:12.5px}
+  </style></head><body><div class="wrap">
+    <h1>🔧 Kurulum Teşhisi</h1>
+    <div class="muted">Discord girişi / bot bağlantısı çalışmıyorsa sebebi burada yazar. Sırlar gösterilmez.</div>
+
+    <div class="card">
+      <div class="big">Panel adresi: <code>${r.baseUrl}</code></div>
+      <div class="muted">Kaynak: ${r.baseUrlSource}</div>
+      <div class="big" style="margin-top:14px">Discord'a kayıtlı olması gereken yönlendirme adresi:</div>
+      <div><code>${r.redirectUri}</code></div>
+      <div class="muted" style="margin-top:6px">
+        Discord Developer Portal &gt; OAuth2 &gt; Redirects bölümüne <b>birebir</b> bu adresi ekle
+        (sonda <code>/</code> olmadan, <code>https://</code> ile).
+      </div>
+      <a class="btn" href="/">Panele dön</a>
+    </div>
+
+    <div class="card"><table>${rows}</table></div>
+
+    <div class="card">
+      <div class="big">Bot durumu</div>
+      <div>${r.botReady ? '🟢 Çevrimiçi' : '🔴 Çevrimdışı'}</div>
+      ${r.botError ? `<div class="muted" style="margin-top:6px">Hata: ${r.botError}</div>` : ''}
+      <div class="muted" style="margin-top:8px">Node: ${r.node} · DEMO_MODE: ${r.demoMode ? 'AÇIK' : 'kapalı'}</div>
+    </div>
+  </div></body></html>`);
 });
 
 /** Kullanıcının botun bulunduğu ve yönetebildiği sunucular. */
@@ -682,10 +811,14 @@ app.get('/api/bot/invite', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+  const failed = setupReport().checks.filter((c) => !c.ok).map((c) => c.title);
   res.json({
     ok: true,
     botReady: botState.ready,
     botError: botState.error,
+    redirectUri: REDIRECT_URI,
+    demoMode: DEMO_MODE,
+    setupWarnings: failed,
     uptime: process.uptime(),
     version: require('./package.json').version
   });
@@ -699,6 +832,12 @@ if (DEMO_MODE) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[web] Panel çalışıyor: ${BASE_URL} (port ${PORT})${DEMO_MODE ? ' [DEMO]' : ''}`);
+  console.log(`[web] Panel adresi kaynağı: ${BASE_URL_SOURCE}${HAS_RENDER ? '' : ' — Render ortamı algılanmadı'}`);
+  console.log(`[web] Discord OAuth2 redirect_uri: ${REDIRECT_URI}`);
+  console.log(`[web] Bu adresi Discord > OAuth2 > Redirects listesine birebir ekle. Teşhis: ${BASE_URL}/setup`);
+  if (BASE_URL.includes('localhost') && !DEMO_MODE) {
+    console.warn('[web] UYARI: Panel adresi localhost görünüyor. Render\'da PUBLIC_URL boşsa RENDER_EXTERNAL_URL otomatik kullanılır; yine de kontrol et.');
+  }
   if (!DEMO_MODE) startBot();
 });
 
