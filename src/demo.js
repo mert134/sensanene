@@ -25,9 +25,9 @@ let members = [
 
 let channels = [
   { id: 'c-cat1', name: 'GENEL', type: 'category', parentId: null, position: 0, topic: null },
-  { id: 'c1', name: 'genel-sohbet', type: 'text', parentId: 'c-cat1', position: 1, topic: 'Her konu serbest' },
-  { id: 'c2', name: 'duyurular', type: 'announcement', parentId: 'c-cat1', position: 2, topic: 'Sunucu duyuruları' },
-  { id: 'c3', name: 'bot-komutlari', type: 'text', parentId: 'c-cat1', position: 3, topic: '!yardım' },
+  { id: 'c1', name: 'genel-sohbet', type: 'text', parentId: 'c-cat1', position: 1, topic: 'Her konu serbest', locked: false },
+  { id: 'c2', name: 'duyurular', type: 'announcement', parentId: 'c-cat1', position: 2, topic: 'Sunucu duyuruları', locked: false },
+  { id: 'c3', name: 'bot-komutlari', type: 'text', parentId: 'c-cat1', position: 3, topic: '/yardım', locked: false },
   { id: 'c-cat2', name: 'SESLİ', type: 'category', parentId: null, position: 4, topic: null },
   { id: 'c4', name: 'Sohbet Odası', type: 'voice', parentId: 'c-cat2', position: 5, topic: null },
   { id: 'c5', name: 'Oyun Odası', type: 'voice', parentId: 'c-cat2', position: 6, topic: null },
@@ -247,6 +247,21 @@ function router() {
     if (!ch) return res.json({ ok: false, error: 'Kanal bulunamadı.' });
     ch.topic = req.body.topic;
     res.json({ ok: true, message: 'Kanal konusu güncellendi.' });
+  });
+
+  r.post('/api/channels/message', (req, res) => {
+    const ch = channels.find((c) => c.id === req.body.channelId);
+    if (!ch || !['text', 'announcement'].includes(ch.type)) return res.status(400).json({ error: 'Bu kanala mesaj gönderilemez.' });
+    if (!String(req.body.content || '').trim()) return res.status(400).json({ error: 'Mesaj boş olamaz.' });
+    pushLog('channel', `#${ch.name} kanalına panelden mesaj gönderildi`);
+    res.json({ ok: true, message: 'Mesaj gönderildi.', messageId: 'demo-message' });
+  });
+
+  r.post('/api/channels/lock', (req, res) => {
+    const ch = channels.find((c) => c.id === req.body.channelId);
+    if (!ch || !['text', 'announcement'].includes(ch.type)) return res.status(400).json({ error: 'Bu kanal kilitlenemez.' });
+    ch.locked = Boolean(req.body.locked);
+    res.json({ ok: true, locked: ch.locked, message: ch.locked ? 'Kanal yazmaya kapatıldı.' : 'Kanal kilidi kaldırıldı.' });
   });
 
   r.post('/api/channels/delete', (req, res) => {

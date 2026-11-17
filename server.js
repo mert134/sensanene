@@ -576,6 +576,7 @@ app.get(
         parentId: ch.parentId,
         position: ch.position,
         topic: ch.topic || null,
+        locked: Boolean(ch.permissionOverwrites?.cache?.get(guild.id)?.deny?.has(PermissionsBitField.Flags.SendMessages)),
         nsfw: Boolean(ch.nsfw),
         userLimit: ch.userLimit || 0,
         bitrate: ch.bitrate || null
@@ -621,6 +622,40 @@ app.post('/api/channels/topic', requireAuth, wrap(async (req, res) => {
   const { channelId, topic } = req.body || {};
   const result = await mod.setChannelTopic(guild, actor, channelId, topic);
   res.json(result);
+}));
+
+app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const channel = guild.channels.cache.get(String(req.body.channelId || ''));
+  if (!channel || typeof channel.send !== 'function' || !['text', 'announcement'].includes(mod.channelTypeName(channel.type))) {
+    throw new Error('Bu kanala panelden mesaj gönderilemez.');
+  }
+  const content = String(req.body.content || '').trim().slice(0, 2000);
+  if (!content) throw new Error('Mesaj boş olamaz.');
+  const botPerms = channel.permissionsFor(guild.members.me);
+  if (!botPerms?.has(PermissionsBitField.Flags.SendMessages)) throw new Error('Botun bu kanalda mesaj gönderme yetkisi yok.');
+  const sent = await channel.send({
+    content,
+    allowedMentions: req.body.allowMentions ? { parse: ['users', 'roles'] } : { parse: [] }
+  });
+  settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalına panelden mesaj gönderdi`);
+  res.json({ ok: true, message: 'Mesaj gönderildi.', messageId: sent.id });
+}));
+
+app.post('/api/channels/lock', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  if (!actor.permissions.has(MOD_PERMS.ManageChannels)) throw new Error('`Kanalları Yönet` yetkin yok.');
+  const channel = guild.channels.cache.get(String(req.body.channelId || ''));
+  if (!channel || !channel.permissionOverwrites || !['text', 'announcement'].includes(mod.channelTypeName(channel.type))) {
+    throw new Error('Bu kanal kilitlenemez.');
+  }
+  if (!guild.members.me.permissions.has(MOD_PERMS.ManageChannels)) throw new Error('Botun `Kanalları Yönet` yetkisi yok.');
+  const locked = Boolean(req.body.locked);
+  await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: locked ? false : null }, { reason: `${actor.user.username}: panelden ${locked ? 'kilitleme' : 'kilit açma'}` });
+  settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalını ${locked ? 'kilitledi' : 'açtı'}`);
+  res.json({ ok: true, locked, message: locked ? 'Kanal yazmaya kapatıldı.' : 'Kanal kilidi kaldırıldı.' });
 }));
 
 app.post('/api/channels/delete', requireAuth, wrap(async (req, res) => {
