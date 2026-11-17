@@ -503,6 +503,34 @@ app.post('/api/mod/unmute', requireAuth, wrap((req, res) => modAction(req, res, 
 
 app.post('/api/mod/warn', requireAuth, wrap((req, res) => modAction(req, res, (guild, actor, userId, body) => mod.warn(guild, actor, userId, body.reason))));
 
+app.post('/api/mod/bulk', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const { action, userIds, reason, durationMs, deleteSeconds, roleId } = req.body || {};
+  const ids = [...new Set(Array.isArray(userIds) ? userIds.map(String) : [])].slice(0, 50);
+  if (!ids.length) throw new Error('İşlem yapılacak üye seçilmedi.');
+  const actions = {
+    ban: (id) => mod.ban(guild, actor, id, reason, Math.min(Number(deleteSeconds) || 0, 604800)),
+    unban: (id) => mod.unban(guild, actor, id, reason),
+    kick: (id) => mod.kick(guild, actor, id, reason),
+    mute: (id) => mod.mute(guild, actor, id, Number(durationMs) || 600000, reason),
+    unmute: (id) => mod.unmute(guild, actor, id, reason),
+    warn: (id) => mod.warn(guild, actor, id, reason),
+    addRole: (id) => mod.addRole(guild, actor, id, roleId),
+    removeRole: (id) => mod.removeRole(guild, actor, id, roleId)
+  };
+  if (!actions[action]) throw new Error('Geçersiz toplu işlem.');
+  if ((action === 'addRole' || action === 'removeRole') && !roleId) throw new Error('Rol seçilmedi.');
+  const results = [];
+  for (const id of ids) {
+    const result = await actions[action](id);
+    results.push({ userId: id, ...result });
+  }
+  const succeeded = results.filter((r) => r.ok).length;
+  settings.log(guild.id, 'site', `${actor.user.username} toplu ${action} işlemi yaptı (${succeeded}/${ids.length})`);
+  res.json({ ok: succeeded > 0, succeeded, failed: ids.length - succeeded, results });
+}));
+
 app.post(
   '/api/mod/warnings/clear',
   requireAuth,
@@ -565,6 +593,19 @@ app.post('/api/channels/create', requireAuth, wrap(async (req, res) => {
   res.json(result);
 }));
 
+app.post('/api/channels/bulk/create', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const { names, type, categoryId } = req.body || {};
+  const cleanNames = [...new Set(Array.isArray(names) ? names.map((n) => String(n).trim()).filter(Boolean) : [])].slice(0, 50);
+  if (!cleanNames.length) throw new Error('Oluşturulacak kanal adlarını gir.');
+  const results = [];
+  for (const name of cleanNames) results.push({ name, ...(await mod.createChannel(guild, actor, { name, type, categoryId })) });
+  const created = results.filter((r) => r.ok).length;
+  if (created) settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal oluşturdu (${created})`);
+  res.json({ ok: created > 0, created, failed: results.length - created, results });
+}));
+
 app.post('/api/channels/rename', requireAuth, wrap(async (req, res) => {
   const guild = getGuild(req.session.guildId);
   const actor = await actorOf(req, guild);
@@ -603,6 +644,17 @@ app.post('/api/channels/bulk/rename', requireAuth, wrap(async (req, res) => {
     settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal adı değiştirdi (${result.updated} kanal)`);
   }
   res.json(result);
+}));
+
+app.post('/api/channels/bulk/topic', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  const ids = [...new Set(Array.isArray(req.body.channelIds) ? req.body.channelIds.map(String) : [])].slice(0, 50);
+  if (!ids.length) throw new Error('Kanal seçilmedi.');
+  const results = [];
+  for (const channelId of ids) results.push({ channelId, ...(await mod.setChannelTopic(guild, actor, channelId, req.body.topic)) });
+  const updated = results.filter((r) => r.ok).length;
+  res.json({ ok: updated > 0, updated, failed: results.length - updated, results });
 }));
 
 app.post('/api/channels/bulk/delete', requireAuth, wrap(async (req, res) => {
@@ -670,6 +722,53 @@ app.post('/api/roles/create', requireAuth, wrap(async (req, res) => {
   });
   settings.log(guild.id, 'role', `${actor.user.username} rol oluşturdu: ${role.name}`);
   res.json({ ok: true, message: `"${role.name}" rolü oluşturuldu.`, roleId: role.id });
+}));
+
+app.post('/api/roles/edit', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  if (!actor.permissions.has(MOD_PERMS.ManageRoles)) throw new Error('`Rolleri Yönet` yetkin yok.');
+  const role = guild.roles.cache.get(req.body.roleId);
+  if (!role || role.managed || !role.editable) throw new Error('Bu rol düzenlenemez.');
+  const name = String(req.body.name || role.name).trim().slice(0, 100);
+  await role.edit({ name, color: req.body.color || role.color, reason: `${actor.user.username}: panelden düzenleme` });
+  res.json({ ok: true, message: `"${name}" rolü güncellendi.` });
+}));
+
+app.post('/api/roles/bulk', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const actor = await actorOf(req, guild);
+  if (!actor.permissions.has(MOD_PERMS.ManageRoles)) throw new Error('`Rolleri Yönet` yetkin yok.');
+  const { action } = req.body || {};
+  const results = [];
+  if (action === 'create') {
+    const items = (Array.isArray(req.body.items) ? req.body.items : []).slice(0, 50);
+    for (const item of items) {
+      try {
+        const role = await guild.roles.create({ name: String(item.name || '').trim().slice(0, 100), color: item.color || undefined, reason: `${actor.user.username}: toplu rol oluşturma` });
+        results.push({ ok: true, roleId: role.id, name: role.name });
+      } catch (e) { results.push({ ok: false, error: e.message, name: item.name }); }
+    }
+  } else {
+    const ids = [...new Set(Array.isArray(req.body.roleIds) ? req.body.roleIds.map(String) : [])].slice(0, 50);
+    if (!ids.length) throw new Error('Rol seçilmedi.');
+    for (const id of ids) {
+      const role = guild.roles.cache.get(id);
+      if (!role || role.managed || !role.editable) { results.push({ ok: false, roleId: id, error: 'Rol düzenlenemez.' }); continue; }
+      try {
+        if (action === 'delete') await role.delete(`${actor.user.username}: toplu rol silme`);
+        else if (action === 'rename') {
+          const mode = req.body.mode || 'prefix';
+          const value = String(req.body.value || '').slice(0, 80);
+          const name = mode === 'suffix' ? role.name + value : value + role.name;
+          await role.setName(name.slice(0, 100), `${actor.user.username}: toplu rol düzenleme`);
+        } else throw new Error('Geçersiz toplu rol işlemi.');
+        results.push({ ok: true, roleId: id });
+      } catch (e) { results.push({ ok: false, roleId: id, error: e.message }); }
+    }
+  }
+  const succeeded = results.filter((r) => r.ok).length;
+  res.json({ ok: succeeded > 0, succeeded, failed: results.length - succeeded, results });
 }));
 
 app.post('/api/roles/delete', requireAuth, wrap(async (req, res) => {

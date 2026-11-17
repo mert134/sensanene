@@ -164,6 +164,28 @@ function router() {
     });
   });
 
+  r.post('/api/mod/bulk', (req, res) => {
+    const ids = new Set(Array.isArray(req.body.userIds) ? req.body.userIds.map(String) : []);
+    const action = req.body.action;
+    let succeeded = 0;
+    if (action === 'unban') {
+      const before = bans.length;
+      bans = bans.filter((b) => !ids.has(b.id));
+      succeeded = before - bans.length;
+      return res.json({ ok: succeeded > 0, succeeded, failed: ids.size - succeeded, results: [] });
+    }
+    for (const m of [...members]) {
+      if (!ids.has(m.id)) continue;
+      if (action === 'ban') { bans.push({ id: m.id, username: m.username, avatar: '', reason: req.body.reason || 'sebep yok' }); members = members.filter((x) => x.id !== m.id); }
+      else if (action === 'kick') members = members.filter((x) => x.id !== m.id);
+      else if (action === 'mute') m.muted = true;
+      else if (action === 'unmute') m.muted = false;
+      else if (action === 'warn') m.warnings += 1;
+      succeeded += 1;
+    }
+    res.json({ ok: succeeded > 0, succeeded, failed: ids.size - succeeded, results: [] });
+  });
+
   r.post('/api/mod/:action', (req, res) => {
     const { action } = req.params;
     const { userId, reason } = req.body || {};
@@ -235,6 +257,12 @@ function router() {
     res.json({ ok: true, message: `"${ch.name}" kanalı silindi.` });
   });
 
+  r.post('/api/channels/bulk/create', (req, res) => {
+    const names = Array.isArray(req.body.names) ? req.body.names.slice(0, 50) : [];
+    names.forEach((name, i) => channels.push({ id: `bc${Date.now()}${i}`, name, type: req.body.type || 'text', parentId: req.body.categoryId || null, position: channels.length, topic: null }));
+    res.json({ ok: names.length > 0, created: names.length, failed: 0, results: [] });
+  });
+
   r.post('/api/channels/bulk/rename', (req, res) => {
     const items = Array.isArray(req.body.items) ? req.body.items : [];
     let updated = 0;
@@ -251,6 +279,12 @@ function router() {
     }
     if (updated) pushLog('channel', `Toplu isim değiştirildi (${updated} kanal)`);
     res.json({ ok: true, updated, skipped, failed });
+  });
+
+  r.post('/api/channels/bulk/topic', (req, res) => {
+    const ids = new Set(req.body.channelIds || []); let updated = 0;
+    for (const ch of channels) if (ids.has(ch.id) && ['text', 'announcement', 'forum'].includes(ch.type)) { ch.topic = req.body.topic || ''; updated += 1; }
+    res.json({ ok: updated > 0, updated, failed: ids.size - updated, results: [] });
   });
 
   r.post('/api/channels/bulk/delete', (req, res) => {
@@ -277,6 +311,25 @@ function router() {
     roles.unshift({ id: 'r' + Date.now(), name: req.body.name, color: req.body.color || '#99aab5', position: roles.length + 3, memberCount: 0, managed: false });
     pushLog('role', `"${req.body.name}" rolü oluşturuldu`);
     res.json({ ok: true, message: `"${req.body.name}" rolü oluşturuldu.` });
+  });
+
+  r.post('/api/roles/edit', (req, res) => {
+    const role = roles.find((x) => x.id === req.body.roleId);
+    if (!role) return res.json({ ok: false, error: 'Rol bulunamadı.' });
+    role.name = req.body.name || role.name; role.color = req.body.color || role.color;
+    res.json({ ok: true, message: `"${role.name}" rolü güncellendi.` });
+  });
+
+  r.post('/api/roles/bulk', (req, res) => {
+    let succeeded = 0;
+    if (req.body.action === 'create') {
+      for (const [i, item] of (req.body.items || []).entries()) { roles.unshift({ id: `br${Date.now()}${i}`, name: item.name, color: item.color || '#99aab5', position: roles.length + 3, memberCount: 0, managed: false }); succeeded += 1; }
+    } else {
+      const ids = new Set(req.body.roleIds || []);
+      if (req.body.action === 'delete') { const before = roles.length; roles = roles.filter((r) => !ids.has(r.id)); succeeded = before - roles.length; }
+      if (req.body.action === 'rename') for (const role of roles) if (ids.has(role.id)) { role.name = req.body.mode === 'suffix' ? role.name + req.body.value : req.body.value + role.name; succeeded += 1; }
+    }
+    res.json({ ok: succeeded > 0, succeeded, failed: 0, results: [] });
   });
 
   r.post('/api/roles/delete', (req, res) => {
