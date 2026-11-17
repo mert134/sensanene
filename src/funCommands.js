@@ -32,7 +32,7 @@ const ACTIONS = {
   düşün: { api: 'think', emoji: '🤔', verb: 'hakkında derin düşüncelere daldı', lines: ['Beyin işlem yapıyor…', 'Büyük planlar var.', 'Sonuç henüz yükleniyor.'] },
   aferin: { api: 'thumbsup', emoji: '👍', verb: 'onay mührünü bastı', lines: ['Kalite kontrolden geçti.', 'Harika iş!', 'Lores Bot onayladı.'] },
   dürt: { api: 'poke', emoji: '👉', verb: 'dürtüp kaçtı', lines: ['Yakalanmadan uzaklaştı.', 'Dikkat başarıyla çekildi.', 'Şimdi sıra karşı tarafta.'] },
-  kovala: { api: ['chase', 'run', 'yeet'], emoji: '🏃', verb: 'peşinden koşmaya başladı', lines: ['Kaçış rotası hesaplanıyor.', 'Nefesler kesildi.', 'Kovalama sahnesi başladı.'] },
+  kovala: { api: 'run', emoji: '🏃', verb: 'peşinden koşmaya başladı', lines: ['Kaçış rotası hesaplanıyor.', 'Nefesler kesildi.', 'Kovalama sahnesi başladı.'] },
   'ateş-et': { api: 'shoot', emoji: '🔫', verb: 'piksel tabancasını ateşledi', lines: ['Tamamen oyun efekti!', 'Respawn noktası yakında.', 'Pew pew!'] },
   ye: { api: 'nom', emoji: '😋', verb: 'yanaklarını nom nom yaptı', lines: ['Çok tatlı olmanın sonuçları.', 'Bir lokma sevgi.', 'Nom seviyesi maksimum.'] }
 };
@@ -68,8 +68,14 @@ const ORACLES = {
 };
 
 function actionBuilder(name, info) {
-  return new SlashCommandBuilder().setName(name).setDescription(`${info.emoji} Bir üyeye ${name} etkileşimi gönder`)
-    .addUserOption(o => o.setName('üye').setDescription('Etkileşim kurulacak kişi').setRequired(true));
+  const builder = new SlashCommandBuilder().setName(name).setDescription(`${info.emoji} Bir üyeye ${name} etkileşimi gönder`);
+  if (name === 'kovala') {
+    return builder
+      .setDescription('🏃 Seçtiğin iki kişi arasında anime kovalama sahnesi başlat')
+      .addUserOption(o => o.setName('kovalayan').setDescription('Kovalayan kişi').setRequired(true))
+      .addUserOption(o => o.setName('kaçan').setDescription('Kaçan kişi').setRequired(true));
+  }
+  return builder.addUserOption(o => o.setName('üye').setDescription('Etkileşim kurulacak kişi').setRequired(true));
 }
 
 function meterBuilder(name, info) {
@@ -119,18 +125,35 @@ function bar(n) {
 const GIF_CACHE = new Map();
 const FALLBACK_GIF = 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif';
 
-async function fetchNekosGif(endpoint) {
-  const cached = GIF_CACHE.get(endpoint);
+// Her aksiyon önce tam isimli anime kategorisini dener. İkinci isim yalnızca aynı
+// temanın servislerdeki farklı karşılığıdır; örneğin besle -> feed/nom.
+const ACTION_GIF_ALIASES = {
+  hug: ['hug', 'cuddle'], kiss: ['kiss', 'peck'], pat: ['pat'], slap: ['slap', 'smack'],
+  punch: ['punch'], kick: ['kick'], bite: ['bite'], tickle: ['tickle'], feed: ['feed', 'nom'],
+  handhold: ['handhold'], highfive: ['highfive'], wave: ['wave'], wink: ['wink'], stare: ['stare'],
+  dance: ['dance'], cry: ['cry'], blush: ['blush', 'shy'], smile: ['smile', 'happy'],
+  think: ['think', 'confused'], thumbsup: ['thumbsup', 'clap'], poke: ['poke'], run: ['run'],
+  shoot: ['shoot'], nom: ['nom']
+};
+
+async function fetchProviderGif(provider, endpoint) {
+  const key = `${provider}:${endpoint}`;
+  const cached = GIF_CACHE.get(key);
   if (cached && cached.expires > Date.now()) return cached.url;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const res = await fetch(`https://nekos.best/api/v2/${endpoint}`, { signal: controller.signal });
+    const url = provider === 'otaku'
+      ? `https://api.otakugifs.xyz/gif?reaction=${encodeURIComponent(endpoint)}`
+      : `https://nekos.best/api/v2/${encodeURIComponent(endpoint)}`;
+    const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) return null;
     const json = await res.json();
-    const url = json.results && json.results[0] ? json.results[0].url : null;
-    if (url) GIF_CACHE.set(endpoint, { url, expires: Date.now() + 5 * 60 * 1000 });
-    return url;
+    const gif = provider === 'otaku'
+      ? json.url
+      : (json.results && json.results[0] ? json.results[0].url : null);
+    if (gif) GIF_CACHE.set(key, { url: gif, expires: Date.now() + 5 * 60 * 1000 });
+    return gif || null;
   } catch {
     return null;
   } finally {
@@ -138,14 +161,16 @@ async function fetchNekosGif(endpoint) {
   }
 }
 
-async function getGif(endpoint) {
-  // Bazı etkileşimlerin (örn. kovala) API'de birebir adı yok. Sırayla en yakın
-  // anime aksiyonlarını deneriz; ağ tamamen kapalıysa bile animasyonsuz kart dönmez.
-  const candidates = [...new Set([].concat(endpoint || [], 'dance'))];
-  for (const candidate of candidates) {
-    const url = await fetchNekosGif(candidate);
-    if (url) return url;
+async function getGif(action) {
+  const aliases = ACTION_GIF_ALIASES[action] || [action];
+  // İki farklı anime GIF sağlayıcısı sayesinde her komut kendi temasıyla eşleşir.
+  for (const endpoint of aliases) {
+    for (const provider of ['otaku', 'nekos']) {
+      const url = await fetchProviderGif(provider, endpoint);
+      if (url) return url;
+    }
   }
+  // İki sağlayıcının da tamamen çevrimdışı olduğu nadir durumda kart boş kalmaz.
   return FALLBACK_GIF;
 }
 
@@ -157,36 +182,56 @@ function baseEmbed(interaction, color = COLORS.purple) {
 }
 
 async function runAction(interaction, name, info) {
-  const target = interaction.options.getUser('üye');
-  if (target.id === interaction.user.id) {
-    return interaction.reply({ content: `${info.emoji} Kendine yapmak yerine bir arkadaşını etiketle!`, ephemeral: true });
+  const isChase = name === 'kovala';
+  const actor = isChase ? interaction.options.getUser('kovalayan') : interaction.user;
+  const target = isChase ? interaction.options.getUser('kaçan') : interaction.options.getUser('üye');
+  if (!actor || !target) return interaction.reply({ content: '⚠️ Gerekli kullanıcıları seçmelisin.', ephemeral: true });
+  if (target.id === actor.id) {
+    return interaction.reply({ content: `${info.emoji} İki farklı kullanıcı seçmelisin!`, ephemeral: true });
   }
   await interaction.deferReply();
   const gif = await getGif(info.api);
   const line = info.lines[Math.floor(Math.random() * info.lines.length)];
   const actionColors = [COLORS.pink, COLORS.purple, COLORS.blue, COLORS.gold, COLORS.green];
-  const accent = actionColors[seededPercent(name, interaction.user.id, target.id) % actionColors.length];
+  const accent = actionColors[seededPercent(name, actor.id, target.id) % actionColors.length];
+  const title = isChase
+    ? `🏃 ${actor.username} kovalıyor  ➜  ${target.username} kaçıyor!`
+    : `${info.emoji} ${interaction.user.username}  ➜  ${target.username}`;
+  const description = isChase
+    ? `### 🏁 Anime kovalama sahnesi başladı!\n<@${actor.id}> hızla kovalıyor, <@${target.id}> canını kurtarmak için kaçıyor!\n\n> *${line}*`
+    : `### ${info.emoji} Etkileşim başladı!\n<@${interaction.user.id}>, <@${target.id}> kullanıcısına **${info.verb}!**\n\n> *${line}*`;
   const embed = baseEmbed(interaction, accent)
     .setAuthor({ name: `LORES • ${name.toLocaleUpperCase('tr-TR')} ANİMASYONU`, iconURL: interaction.client.user.displayAvatarURL() })
-    .setTitle(`${info.emoji} ${interaction.user.username}  ➜  ${target.username}`)
-    .setDescription(`### ${info.emoji} Etkileşim başladı!\n<@${interaction.user.id}>, <@${target.id}> kullanıcısına **${info.verb}!**\n\n> *${line}*`)
+    .setTitle(title)
+    .setDescription(description)
     .setThumbnail(target.displayAvatarURL({ size: 256 }))
     .setImage(gif);
-  return interaction.editReply({ content: `<@${target.id}>`, embeds: [embed], allowedMentions: { users: [target.id] } });
+  const mentions = [...new Set([actor.id, target.id])];
+  return interaction.editReply({ content: mentions.map(id => `<@${id}>`).join(' '), embeds: [embed], allowedMentions: { users: mentions } });
 }
+
+const METER_GIFS = {
+  aşk: 'love', çekicilik: 'blush', karizma: 'cool', azgınlık: 'nosebleed', delilik: 'laugh',
+  masumluk: 'happy', kıskançlık: 'pout', toksiklik: 'smug', yakışıklılık: 'cool', güzellik: 'smile',
+  zenginlik: 'celebrate', şanslılık: 'yay', oyunculuk: 'thumbsup', zekâ: 'think', tembellik: 'sleep',
+  sadakat: 'handhold', komiklik: 'laugh', enerji: 'dance', coolluk: 'cool', güvenilirlik: 'hug'
+};
 
 async function runMeter(interaction, name, info) {
   const one = interaction.options.getUser('kişi1');
   const two = name === 'aşk' ? (interaction.options.getUser('kişi2') || interaction.user) : null;
+  await interaction.deferReply();
   const day = Math.floor(Date.now() / 86400000); // Eğlenceli sonuç her gün yenilenir.
   const score = seededPercent(name, one.id, two ? two.id : '', day);
   const comment = score >= 75 ? info.high : score >= 35 ? info.mid : info.low;
   const who = two ? `<@${one.id}> × <@${two.id}>` : `<@${one.id}>`;
+  const gif = await getGif(METER_GIFS[name] || 'happy');
   const embed = baseEmbed(interaction, score >= 75 ? COLORS.pink : score >= 35 ? COLORS.purple : COLORS.blue)
     .setTitle(`${info.emoji} ${info.title}: %${score}`)
     .setDescription(`${who}\n\n### ${bar(score)}  **%${score}**\n\n*${comment}*`)
-    .setThumbnail(one.displayAvatarURL({ size: 256 }));
-  return interaction.reply({ embeds: [embed] });
+    .setThumbnail(one.displayAvatarURL({ size: 256 }))
+    .setImage(gif);
+  return interaction.editReply({ embeds: [embed] });
 }
 
 async function runOracle(interaction) {
