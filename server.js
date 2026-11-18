@@ -161,11 +161,23 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Giriş yapmalısın.' });
 }
 
+/** Discord'un hız sınırı cevabından (429) istemcinin bekleyebileceği süreyi çıkarır. */
+function rateLimitInfo(err) {
+  const status = Number(err?.status) || Number(err?.code) || 0;
+  const headerWait = Number(err?.headers?.['retry-after'] ?? err?.headers?.get?.('retry-after') ?? 0);
+  const bodyWait = Number(err?.retryAfterSeconds ?? err?.retryAfter ?? 0);
+  const seconds = [headerWait, bodyWait].find((value) => Number.isFinite(value) && value > 0);
+  return {
+    upstreamStatus: status === 429 ? 429 : undefined,
+    retryAfterSeconds: status === 429 && seconds ? Math.min(Math.ceil(seconds), 60) : undefined
+  };
+}
+
 function wrap(handler) {
   return (req, res) => {
     Promise.resolve(handler(req, res)).catch((err) => {
       console.error('[api]', err);
-      res.status(400).json({ error: err.message || 'Beklenmeyen hata' });
+      res.status(400).json({ error: err.message || 'Beklenmeyen hata', ...rateLimitInfo(err) });
     });
   };
 }

@@ -3,40 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bot Paneli · Discord Yönetim</title>
+  <title>Yönetim Paneli</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="stylesheet" href="/panel-polish.css" />
   <link rel="stylesheet" href="/channel-controls.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b7cfa' stroke-width='1.8' stroke-linecap='round'%3E%3Cline x1='4' y1='21' x2='4' y2='14'/%3E%3Cline x1='4' y1='10' x2='4' y2='3'/%3E%3Cline x1='12' y1='21' x2='12' y2='12'/%3E%3Cline x1='12' y1='8' x2='12' y2='3'/%3E%3Cline x1='20' y1='21' x2='20' y2='16'/%3E%3Cline x1='20' y1='12' x2='20' y2='3'/%3E%3Cline x1='1' y1='14' x2='7' y2='14'/%3E%3Cline x1='9' y1='8' x2='15' y2='8'/%3E%3Cline x1='17' y1='16' x2='23' y2='16'/%3E%3C/svg%3E" />
 </head>
 <body>
 
 <!-- ============ GİRİŞ ============ -->
 <div id="login">
   <div class="login-card">
-    <div class="login-logo">🎛️</div>
-    <h1>Bot Kontrol Paneli</h1>
-    <p>Sunucuları incelemek ve botu yönetmek için giriş yap.</p>
+    <div class="login-logo">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+    </div>
+    <h1>Yönetim paneli</h1>
+    <p>Sunucuları yönetmek ve botu izlemek için giriş yap.</p>
     <div id="loginWarn"></div>
-    <form id="loginForm" onsubmit="submitLogin(event)" style="text-align:left">
+    <form id="loginForm" onsubmit="submitLogin(event)">
       <div class="field">
-        <label class="f" for="loginUser">Kullanıcı Adı</label>
+        <label class="f" for="loginUser">Kullanıcı adı</label>
         <input class="input" id="loginUser" name="username" autocomplete="username" placeholder="Kullanıcı adı" required />
       </div>
       <div class="field">
         <label class="f" for="loginPass">Şifre</label>
-        <div style="display:flex;gap:6px">
+        <div class="pass-row">
           <input class="input" id="loginPass" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
-          <button type="button" class="btn" id="togglePassBtn" onclick="togglePass()" title="Göster / gizle" style="flex:0 0 auto">👁</button>
+          <button type="button" class="btn pass-toggle" id="togglePassBtn" data-icon="eye" onclick="togglePass()" title="Şifreyi göster" aria-label="Şifreyi göster veya gizle"></button>
         </div>
       </div>
-      <button type="submit" class="btn-discord" id="loginBtn" style="border:none;cursor:pointer;margin-top:6px">
-        🔓 Giriş Yap
-      </button>
+      <button type="submit" class="btn-discord btn-block" id="loginBtn">Giriş yap</button>
     </form>
     <div class="login-note">
-      🔒 <b>Özel yönetim paneli.</b><br />
-      Yalnızca belirlenen kullanıcı adı ve şifre ile giriş yapılabilir.
+      Panel yalnızca tanımlı kullanıcı adı ve şifreyle erişime açıktır.
     </div>
   </div>
 </div>
@@ -46,34 +45,34 @@
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-icon">🎛️</div>
-        <div class="brand-text"><b>Bot Paneli</b><span>discord kontrol</span></div>
+        <div class="brand-icon" data-icon="sliders"></div>
+        <div class="brand-text"><b>Yönetim Paneli</b><span>Discord bot kontrolü</span></div>
       </div>
 
       <button class="guild-chip" id="guildChip" onclick="openGuildPicker()">
         <img id="guildIcon" style="display:none" alt="" />
         <div class="fallback" id="guildFallback">?</div>
         <div class="name" id="guildName">Sunucu seç</div>
-        <span class="chev">▼</span>
+        <span class="chev" data-icon="chevronDown"></span>
       </button>
 
-      <button class="nav-item active" data-section="dashboard"><span class="ico">📊</span> Genel Bakış</button>
-      <button class="nav-item" data-section="members"><span class="ico">👥</span> Üyeler & Moderasyon</button>
-      <button class="nav-item" data-section="channels"><span class="ico">📁</span> Kanallar</button>
-      <button class="nav-item" data-section="roles"><span class="ico">🎭</span> Roller</button>
-      <button class="nav-item" data-section="games"><span class="ico">🎰</span> Oyunlar</button>
-      <button class="nav-item" data-section="settings"><span class="ico">⚙️</span> Ayarlar</button>
-      <button class="nav-item" data-section="logs"><span class="ico">📜</span> Kayıtlar</button>
+      <button class="nav-item active" data-section="dashboard"><span class="ico" data-icon="grid"></span> Genel bakış</button>
+      <button class="nav-item" data-section="members"><span class="ico" data-icon="users"></span> Üyeler</button>
+      <button class="nav-item" data-section="channels"><span class="ico" data-icon="hash"></span> Kanallar</button>
+      <button class="nav-item" data-section="roles"><span class="ico" data-icon="tag"></span> Roller</button>
+      <button class="nav-item" data-section="games"><span class="ico" data-icon="dice"></span> Oyunlar</button>
+      <button class="nav-item" data-section="settings"><span class="ico" data-icon="settings"></span> Ayarlar</button>
+      <button class="nav-item" data-section="logs"><span class="ico" data-icon="list"></span> Kayıtlar</button>
 
       <div class="nav-spacer"></div>
       <div class="bot-status" id="botStatus">Bot durumu yükleniyor…</div>
-      <button class="nav-item" onclick="logout()"><span class="ico">🚪</span> Çıkış</button>
+      <button class="nav-item" onclick="logout()"><span class="ico" data-icon="logout"></span> Çıkış</button>
     </aside>
 
     <main class="main">
       <div class="topbar">
         <div>
-          <h2 id="pageTitle">Genel Bakış</h2>
+          <h2 id="pageTitle">Genel bakış</h2>
           <div class="sub" id="pageSub">Sunucu durumu ve bot bilgileri</div>
         </div>
         <div class="right">
@@ -84,26 +83,26 @@
 
       <!-- ---------- DASHBOARD ---------- -->
       <section class="section active" id="sec-dashboard">
-        <div class="grid cols-4" style="margin-bottom:16px">
+        <div class="grid cols-4" style="margin-bottom:14px">
           <div class="card stat stat-accent"><div class="label">Üye</div><div class="value" id="stMembers">—</div><div class="hint" id="stBots">—</div></div>
           <div class="card stat"><div class="label">Kanal</div><div class="value" id="stChannels">—</div><div class="hint" id="stChannelHint">—</div></div>
           <div class="card stat"><div class="label">Yasaklı</div><div class="value" id="stBans">—</div><div class="hint">ban listesi</div></div>
-          <div class="card stat"><div class="label">Bot Gecikme</div><div class="value" id="stPing">—</div><div class="hint" id="stUptime">—</div></div>
+          <div class="card stat"><div class="label">Gecikme</div><div class="value" id="stPing">—</div><div class="hint" id="stUptime">—</div></div>
         </div>
 
         <div class="grid cols-2">
           <div class="card">
-            <h3>🤖 Bot Durumu</h3>
-            <div id="botInfo" style="font-size:13px;line-height:2">Yükleniyor…</div>
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2.5"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/><path d="M12 8V4.5"/><circle cx="12" cy="3.2" r="1.2"/></svg> Bot durumu</h3>
+            <div id="botInfo" style="font-size:13px;line-height:1.9">Yükleniyor…</div>
           </div>
           <div class="card">
-            <h3>👤 Senin Yetkilerin</h3>
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-9.6V5.2L12 2.2 4 5.2v7.2C4 18.4 12 22 12 22z"/></svg> Yetkilerin</h3>
             <div id="myPerms" style="font-size:13px;line-height:1.9">Yükleniyor…</div>
           </div>
         </div>
 
-        <div class="card" style="margin-top:16px">
-          <h3>📜 Son İşlemler <span class="badge" id="logCount">0</span></h3>
+        <div class="card" style="margin-top:14px">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><line x1="4" y1="6" x2="4.01" y2="6"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="18" x2="4.01" y2="18"/></svg> Son işlemler <span class="badge" id="logCount">0</span></h3>
           <div id="recentLogs"><div class="empty">Kayıt yok.</div></div>
         </div>
       </section>
@@ -111,14 +110,17 @@
       <!-- ---------- MEMBERS ---------- -->
       <section class="section" id="sec-members">
         <div class="toolbar">
-          <input class="input search" id="memberSearch" placeholder="🔍 İsim veya ID ile ara…" oninput="renderMembers()" />
+          <div class="search-wrap">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7.5"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input class="input" id="memberSearch" placeholder="İsim veya ID ile ara" oninput="renderMembers()" />
+          </div>
           <select class="input" id="memberFilter" onchange="renderMembers()" style="max-width:180px">
             <option value="all">Tüm üyeler</option>
             <option value="muted">Susturulmuş</option>
             <option value="warned">Uyarısı olan</option>
             <option value="bots">Botlar</option>
           </select>
-          <button class="btn" onclick="loadMembers()">↻ Yenile</button>
+          <button class="btn" onclick="loadMembers()" data-icon-label="refresh:Yenile"></button>
         </div>
         <div class="operation-bar">
           <div class="operation-head"><div><b>Toplu üye işlemleri</b><span>Birden fazla üyeyi seçip tek adımda yönet.</span></div><span class="selection-count" id="memberBulkCount">0 seçili</span></div>
@@ -141,22 +143,25 @@
       <!-- ---------- CHANNELS ---------- -->
       <section class="section" id="sec-channels">
         <div class="toolbar">
-          <input class="input search" id="channelSearch" placeholder="🔍 Kanal veya kategori ara…" oninput="renderChannels()" />
-          <button class="btn btn-primary" onclick="openChannelCreate()">Kanal oluştur</button>
+          <div class="search-wrap">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7.5"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input class="input" id="channelSearch" placeholder="Kanal veya kategori ara" oninput="renderChannels()" />
+          </div>
+          <button class="btn btn-primary" onclick="openChannelCreate()" data-icon-label="plus:Kanal oluştur"></button>
           <button class="btn" onclick="openBulkChannelCreate()">Toplu oluştur</button>
-          <button class="btn" onclick="loadChannels()">Yenile</button>
+          <button class="btn" onclick="loadChannels()" data-icon-label="refresh:Yenile"></button>
         </div>
 
         <div class="card bulk-bar" style="margin-bottom:14px;padding:12px 14px">
           <div class="bulk-select-row">
-            <span class="hint" style="margin:0;font-weight:600;color:var(--text)">Hızlı seçim:</span>
-            <button class="chip" onclick="selectChannelsBy('all')">☑ Tümü</button>
-            <button class="chip" onclick="selectChannelsBy('visible')">👁 Görünenler</button>
-            <button class="chip" onclick="selectChannelsBy('voice')">🔊 Ses kanalları</button>
-            <button class="chip" onclick="selectChannelsBy('text')">📝 Metin kanalları</button>
-            <button class="chip" onclick="selectChannelsBy('category')">📂 Kategoriler</button>
-            <button class="chip" onclick="selectChannelsBy('none')">☐ Temizle</button>
-            <button class="chip" onclick="openBulkChannelMessage()">✉ Seçililere mesaj gönder</button>
+            <span class="hint" style="margin:0;font-weight:600;color:var(--text)">Hızlı seçim</span>
+            <button class="chip" onclick="selectChannelsBy('all')">Tümü</button>
+            <button class="chip" onclick="selectChannelsBy('visible')">Görünenler</button>
+            <button class="chip" onclick="selectChannelsBy('voice')">Ses kanalları</button>
+            <button class="chip" onclick="selectChannelsBy('text')">Metin kanalları</button>
+            <button class="chip" onclick="selectChannelsBy('category')">Kategoriler</button>
+            <button class="chip" onclick="selectChannelsBy('none')">Seçimi temizle</button>
+            <button class="chip" onclick="openBulkChannelMessage()" data-icon-label="send:Seçililere mesaj gönder"></button>
           </div>
           <div class="bulk-act-row" id="bulkActions" style="display:none">
             <span class="badge" id="bulkCount">0 seçili</span>
@@ -167,12 +172,12 @@
         </div>
 
         <div class="card">
-          <h3>📁 Kanallar <span class="badge" id="channelCount">0</span></h3>
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> Kanallar <span class="badge" id="channelCount">0</span></h3>
           <div id="channelList"><div class="empty">Yükleniyor…</div></div>
         </div>
 
-        <div class="card" style="margin-top:16px">
-          <h3>🚫 Yasaklı Üyeler <span class="badge" id="banCount">0</span></h3>
+        <div class="card" style="margin-top:14px">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg> Yasaklı üyeler <span class="badge" id="banCount">0</span></h3>
           <div class="row" style="margin-bottom:10px">
             <input class="input" id="unbanInput" placeholder="Yasağı kaldırılacak kullanıcı ID" />
             <button class="btn btn-ok" style="flex:0 0 auto" onclick="quickUnban()">Yasağı kaldır</button>
@@ -186,16 +191,16 @@
       <section class="section" id="sec-roles">
         <div class="toolbar">
           <input class="input" id="newRoleName" placeholder="Yeni rol adı" style="max-width:220px" />
-          <input type="color" class="input" id="newRoleColor" value="#5865f2" style="max-width:60px;padding:4px;height:40px" />
-          <button class="btn btn-primary" onclick="createRole()">Rol oluştur</button>
+          <input type="color" class="input" id="newRoleColor" value="#5b7cfa" style="max-width:56px;padding:4px;height:38px" />
+          <button class="btn btn-primary" onclick="createRole()" data-icon-label="plus:Rol oluştur"></button>
           <button class="btn" onclick="openBulkRoleCreate()">Toplu oluştur</button>
-          <button class="btn" onclick="loadRoles()">Yenile</button>
+          <button class="btn" onclick="loadRoles()" data-icon-label="refresh:Yenile"></button>
         </div>
         <div class="operation-bar">
           <div class="operation-head"><div><b>Toplu rol işlemleri</b><span>Seçilen rolleri birlikte düzenle veya kaldır.</span></div><span class="selection-count" id="roleBulkCount">0 seçili</span></div>
           <div class="operation-actions">
             <button class="btn btn-sm" onclick="selectRoles('all')">Tümünü seç</button>
-            <button class="btn btn-sm" onclick="selectRoles('none')">Temizle</button>
+            <button class="btn btn-sm" onclick="selectRoles('none')">Seçimi temizle</button>
             <span class="operation-separator"></span>
             <button class="btn btn-sm" onclick="bulkRenameRoles('prefix')">Ön ek ekle</button>
             <button class="btn btn-sm" onclick="bulkRenameRoles('suffix')">Son ek ekle</button>
@@ -210,39 +215,38 @@
       <!-- ---------- GAMES ---------- -->
       <section class="section" id="sec-games">
         <div class="grid cols-2">
-          <div>
-            <div class="card" style="margin-top:16px">
-              <h3>🪙 Diğer Oyunlar</h3>
-              <div class="row" style="margin-bottom:10px">
-                <input class="input" id="othBet" type="number" value="50" min="10" placeholder="Bahis" />
-              </div>
-              <div class="row">
-                <button class="btn" onclick="playCoinflip('yazı')">🪙 Yazı</button>
-                <button class="btn" onclick="playCoinflip('tura')">🪙 Tura</button>
-              </div>
-              <div class="row" style="margin-top:10px">
-                <select class="input" id="diceGuess">
-                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-                  <option value="4">4</option><option value="5">5</option><option value="6">6</option>
-                </select>
-                <button class="btn" onclick="playDice()">🎲 Zar At (x6)</button>
-              </div>
-              <div id="othMsg" class="hint" style="margin-top:12px"></div>
-              <button class="btn btn-ok btn-block" style="margin-top:12px" onclick="claimDaily()">🎁 Günlük Ödül Al</button>
+          <div class="card">
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.1"/><circle cx="15.5" cy="15.5" r="1.1"/><circle cx="12" cy="12" r="1.1"/></svg> Oyunlar</h3>
+            <div class="field">
+              <label class="f" for="othBet">Bahis</label>
+              <input class="input" id="othBet" type="number" value="50" min="10" placeholder="Bahis" />
             </div>
+            <div class="row">
+              <button class="btn" onclick="playCoinflip('yazı')">Yazı</button>
+              <button class="btn" onclick="playCoinflip('tura')">Tura</button>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <select class="input" id="diceGuess" aria-label="Zar tahmini">
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+              </select>
+              <button class="btn" onclick="playDice()">Zar at (x6)</button>
+            </div>
+            <div id="othMsg" class="hint" style="margin-top:12px"></div>
+            <button class="btn btn-ok btn-block" style="margin-top:12px" onclick="claimDaily()" data-icon-label="gift:Günlük ödül al"></button>
           </div>
 
           <div>
             <div class="card">
-              <h3>🏆 Sunucu Sıralaması</h3>
+              <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v4.5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2 2 0 0 0 2 4"/><path d="M17 6h2.5a2 2 0 0 1-2 4"/><line x1="12" y1="13.5" x2="12" y2="18"/><path d="M8.5 20.5h7"/></svg> Sunucu sıralaması</h3>
               <div id="leaderboard"><div class="empty">Yükleniyor…</div></div>
             </div>
-            <div class="card" style="margin-top:16px">
-              <h3>📈 İstatistiğin</h3>
-              <div id="myStats" style="font-size:13px;line-height:2"></div>
+            <div class="card" style="margin-top:14px">
+              <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> İstatistiklerin</h3>
+              <div id="myStats" style="font-size:13px;line-height:1.9"></div>
             </div>
-            <div class="card" style="margin-top:16px">
-              <h3>💬 Discord Komutları</h3>
+            <div class="card" style="margin-top:14px">
+              <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11.5 4 6"/><line x1="12.5" y1="19" x2="20" y2="19"/></svg> Discord komutları</h3>
               <div style="font-size:12.5px;line-height:2;color:var(--muted)">
                 <span class="mono">/yazıtura 50 yazı</span><br />
                 <span class="mono">!zar 4 50</span> · <span class="mono">!günlük</span><br />
@@ -259,46 +263,46 @@
       <section class="section" id="sec-settings">
         <div class="grid cols-2">
           <div class="card">
-            <h3>⚙️ Sunucu Ayarları</h3>
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.4-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 3.1V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1.1h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.7 1z"/></svg> Sunucu ayarları</h3>
             <div class="field">
-              <label class="f">Kayıt (log) kanalı</label>
-              <select class="input" id="setLogChannel"><option value="">— kapalı —</option></select>
+              <label class="f" for="setLogChannel">Kayıt kanalı</label>
+              <select class="input" id="setLogChannel"><option value="">Kapalı</option></select>
               <div class="hint">Moderasyon ve panel işlemleri bu kanala yazılır.</div>
             </div>
             <div class="field">
-              <label class="f">Hoş geldin kanalı</label>
-              <select class="input" id="setWelcomeChannel"><option value="">— kapalı —</option></select>
+              <label class="f" for="setWelcomeChannel">Hoş geldin kanalı</label>
+              <select class="input" id="setWelcomeChannel"><option value="">Kapalı</option></select>
             </div>
             <div class="field">
-              <label class="f">Hoş geldin mesajı</label>
+              <label class="f" for="setWelcomeMsg">Hoş geldin mesajı</label>
               <textarea class="input" id="setWelcomeMsg" placeholder="Sunucumuza hoş geldin {user}!"></textarea>
               <div class="hint">Değişkenler: <code>{user}</code> etiket, <code>{name}</code> kullanıcı adı, <code>{guild}</code> sunucu adı.</div>
             </div>
             <div class="field">
-              <label class="f">Otomatik rol (yeni üyeye)</label>
-              <select class="input" id="setAutoRole"><option value="">— kapalı —</option></select>
+              <label class="f" for="setAutoRole">Otomatik rol</label>
+              <select class="input" id="setAutoRole"><option value="">Kapalı</option></select>
             </div>
             <div class="field">
-              <label class="f">Komut ön eki</label>
+              <label class="f" for="setPrefix">Komut ön eki</label>
               <input class="input" id="setPrefix" maxlength="3" placeholder="!" />
             </div>
-            <button class="btn btn-primary btn-block" onclick="saveSettings()">💾 Kaydet</button>
+            <button class="btn btn-primary btn-block" onclick="saveSettings()" data-icon-label="save:Kaydet"></button>
           </div>
 
           <div class="card">
-            <h3>🤖 Bot Bilgileri</h3>
-            <div id="botDetails" style="font-size:13px;line-height:2"></div>
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2.5"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/><path d="M12 8V4.5"/><circle cx="12" cy="3.2" r="1.2"/></svg> Bot bilgileri</h3>
+            <div id="botDetails" style="font-size:13px;line-height:1.9"></div>
             <div style="margin-top:14px">
-              <button class="btn btn-block" onclick="copyInvite()">🔗 Bot Davet Linkini Kopyala</button>
+              <button class="btn btn-block" onclick="copyInvite()" data-icon-label="link:Bot davet linkini kopyala"></button>
             </div>
-            <h3 style="margin-top:22px">📖 Komut Listesi</h3>
+            <h3 style="margin-top:22px"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> Komut listesi</h3>
             <div style="font-size:12.5px;line-height:2;color:var(--muted)">
               <b style="color:var(--text)">Moderasyon</b><br />
               <span class="mono">!ban @üye sebep</span> · <span class="mono">!unban ID</span><br />
               <span class="mono">!kick @üye</span> · <span class="mono">!mute @üye 10m</span><br />
               <span class="mono">!unmute @üye</span> · <span class="mono">!warn @üye</span><br />
               <span class="mono">!uyarılar @üye</span> · <span class="mono">!temizle 50</span><br /><br />
-              <b style="color:var(--text)">Kanal / Rol</b><br />
+              <b style="color:var(--text)">Kanal / rol</b><br />
               <span class="mono">!kanal-oluştur isim ses</span> · <span class="mono">!kanal-ad yeni</span><br />
               <span class="mono">!kanal-sil</span> · <span class="mono">!rol-ver @üye @rol</span><br />
               <span class="mono">!rol-al @üye @rol</span>
@@ -310,15 +314,13 @@
       <!-- ---------- LOGS ---------- -->
       <section class="section" id="sec-logs">
         <div class="toolbar">
-          <button class="btn" onclick="loadLogs()">↻ Yenile</button>
+          <button class="btn" onclick="loadLogs()" data-icon-label="refresh:Yenile"></button>
         </div>
         <div class="card"><div id="logList"><div class="empty">Yükleniyor…</div></div></div>
       </section>
     </main>
   </div>
 </div>
-
-<!-- ============ MOBİL NAV ============ -->
 
 <!-- ============ MODAL ============ -->
 <div class="modal-backdrop" id="modal" onclick="if(event.target===this)closeModal()">
