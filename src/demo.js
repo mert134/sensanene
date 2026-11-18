@@ -34,14 +34,16 @@ let channels = [
   { id: 'c6', name: 'muzik', type: 'voice', parentId: 'c-cat2', position: 7, topic: null }
 ];
 
-/* Demo: Anonymous webhook'u kanal açıldığı anda otomatik konur.
-   Gerçek sunucuda bu işi server.js'teki otomatik hazırlık yapar. */
+/* Demo: Anonymous webhook'ları OTOMATİK EKLENMEZ — yalnızca panelde "Anonymous ekle"
+   düğmesiyle (seçili kanallara) veya anonim gönderimde eklenir. Gerçek sunucudaki
+   davranışın aynısı. */
 const readyWebhooks = new Set();
 const isWebhookable = (ch) => ['text', 'announcement'].includes(ch.type);
 const webhookStatusOf = (ch) => (isWebhookable(ch) ? (readyWebhooks.has(ch.id) ? 'ready' : 'missing') : null);
-const webhookSummary = () => {
-  const eligible = channels.filter(isWebhookable);
-  return { ready: eligible.filter((ch) => readyWebhooks.has(ch.id)).length, preparing: 0, eligible: eligible.length };
+const webhookSummary = (scope = channels) => {
+  const eligible = scope.filter(isWebhookable);
+  const ready = eligible.filter((ch) => readyWebhooks.has(ch.id)).length;
+  return { ready, preparing: 0, missing: eligible.length - ready, noPerm: 0, total: eligible.length, eligible: eligible.length };
 };
 
 let roles = [
@@ -244,10 +246,7 @@ function router() {
     if (!name) return res.json({ ok: false, error: 'Kanal ismi gerekli.' });
     const ch = { id: 'c' + Date.now(), name, type, parentId: categoryId || null, position: channels.length, topic: null };
     channels.push(ch);
-    if (isWebhookable(ch)) {
-      readyWebhooks.add(ch.id);
-      pushLog('site', `Anonymous webhook otomatik hazırlandı: #${ch.name}`);
-    }
+    // Yeni kanala webhook OTOMATİK EKLENMEZ.
     pushLog('channel', `"${name}" kanalı oluşturuldu`);
     res.json({ ok: true, message: `"${name}" kanalı oluşturuldu.`, channelId: ch.id });
   });
@@ -273,14 +272,18 @@ function router() {
     const already = eligible.filter((id) => readyWebhooks.has(id)).length;
     const pending = eligible.filter((id) => !readyWebhooks.has(id));
     pending.forEach((id) => readyWebhooks.add(id));
-    if (pending.length) pushLog('site', `Webhook hazırlığı (demo): ${pending.length} kanal hazır`);
-    res.json({ ok: true, started: pending.length, ready: already, total: eligible.length, auto: true, webhookGate: { limit: 8, active: 0, queued: 0 }, demo: true });
+    if (pending.length) pushLog('site', `Anonymous webhook eklendi (demo): ${pending.length} kanal`);
+    res.json({ ok: true, started: pending.length, ready: already, total: eligible.length, noPerm: 0, webhookGate: { limit: 8, active: 0, queued: 0 }, demo: true });
   });
 
   r.get('/api/channels/webhooks/status', (req, res) => {
-    const eligible = channels.filter(isWebhookable);
-    const ready = eligible.filter((c) => readyWebhooks.has(c.id)).length;
-    res.json({ ok: true, auto: true, total: eligible.length, ready, preparing: 0, missing: eligible.length - ready, demo: true });
+    res.json({ ok: true, ...webhookSummary(), demo: true });
+  });
+
+  r.post('/api/channels/webhooks/status', (req, res) => {
+    const ids = new Set((Array.isArray(req.body?.channelIds) ? req.body.channelIds : []).map(String));
+    const scope = ids.size ? channels.filter((c) => ids.has(c.id)) : channels;
+    res.json({ ok: true, ...webhookSummary(scope), demo: true });
   });
 
   r.post('/api/channels/message', (req, res) => {
@@ -309,17 +312,10 @@ function router() {
 
   r.post('/api/channels/bulk/create', (req, res) => {
     const names = Array.isArray(req.body.names) ? req.body.names : [];
-    const created = [];
     names.forEach((name, i) => {
-      const ch = { id: `bc${Date.now()}${i}`, name, type: req.body.type || 'text', parentId: req.body.categoryId || null, position: channels.length, topic: null };
-      channels.push(ch);
-      // Kanal açılır açılmaz Anonymous webhook'u otomatik konur.
-      if (isWebhookable(ch)) {
-        readyWebhooks.add(ch.id);
-        created.push(ch);
-      }
+      channels.push({ id: `bc${Date.now()}${i}`, name, type: req.body.type || 'text', parentId: req.body.categoryId || null, position: channels.length, topic: null });
     });
-    if (created.length) pushLog('site', `Anonymous webhook otomatik hazırlandı: ${created.length} yeni kanal`);
+    // Yeni kanallara webhook OTOMATİK EKLENMEZ; istenirse "Anonymous ekle" ile eklenir.
     res.json({ ok: names.length > 0, created: names.length, failed: 0, results: [] });
   });
 
