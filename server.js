@@ -1207,6 +1207,8 @@ app.get(
     const whitelist = guardWhitelistView(guild, cfg);
     res.json({
       guard: { ...cfg, whitelist },
+      admin: guard.adminSummary(guild.id, guild),
+      statusLabels: guard.STATUS_LABEL,
       modules: guard.MODULES,
       limitActions: guard.LIMIT_ACTIONS,
       punishments: guard.PUNISHMENTS,
@@ -1342,6 +1344,274 @@ app.post(
     const event = guard.runTest(guild, actor.user.username);
     settings.log(guild.id, 'guard', `${actor.user.username} guard testi çalıştırdı`);
     res.json({ ok: true, event, events: guard.events(guild.id, 60), summary: guard.summary(guild.id, guild) });
+  })
+);
+
+// ============================================ GUARD MERKEZİ (OPERATÖR KATMANI)
+// Bu rotalar sunucu bazlı Discord yetkisine değil, PANEL GİRİŞİNE (operatör)
+// dayanır: bottaki tüm sunucuların koruma durumu buradan görülür ve düzenlenir.
+// Whitelist/blacklist, sessiz mod ve otomatik pasifleştirme burada yönetilir.
+// Discord tarafına bu bilgiler sızmaz.
+function centerClient() {
+  return botState.client || null;
+}
+
+function centerGuild(guildId) {
+  const c = centerClient();
+  return c?.guilds?.cache?.get(String(guildId)) || null;
+}
+
+function requireGuildId(value) {
+  const id = String(value || '').trim();
+  if (!/^\d{5,25}$/.test(id)) throw new Error('Geçerli bir sunucu ID gir.');
+  return id;
+}
+
+function centerRow(guildId) {
+  const id = String(guildId);
+  const row = guard.guildStates(centerClient()).find((g) => g.id === id);
+  if (row) return row;
+  const adm = guard.adminSummary(id, centerGuild(id));
+  return { id, name: id, memberCount: null, online: false, icon: null, ...adm, statusLabel: guard.STATUS_LABEL[adm.status] || adm.status };
+}
+
+function centerPayload() {
+  const guilds = guard.guildStates(centerClient());
+  return {
+    ok: true,
+    policy: guard.policy(),
+    statusLabels: guard.STATUS_LABEL,
+    stats: guard.policyStats(guilds),
+    guilds,
+    ops: guard.ops(80),
+    modules: guard.MODULES,
+    limitActions: guard.LIMIT_ACTIONS,
+    punishments: guard.PUNISHMENTS,
+    botReady: Boolean(centerClient()?.readyAt)
+  };
+}
+
+app.get(
+  '/api/guard/center',
+  requireAuth,
+  wrap(async (req, res) => {
+    res.json(centerPayload());
+  })
+);
+
+app.post(
+  '/api/guard/center/sync',
+  requireAuth,
+  wrap(async (req, res) => {
+    const synced = guard.syncAll(centerClient());
+    settings.log(req.session.guildId, 'guard', `Guard merkezi: ${synced.length} sunucu senkronize edildi`);
+    res.json({ ...centerPayload(), synced: synced.length });
+  })
+);
+
+app.post(
+  '/api/guard/center/policy',
+  requireAuth,
+  wrap(async (req, res) => {
+    if (req.body?.autoBlockNewGuilds === undefined) throw new Error('autoBlockNewGuilds gerekli.');
+    guard.setAutoBlock(Boolean(req.body.autoBlockNewGuilds), req.session.user.username);
+    settings.log(req.session.guildId, 'guard', `Yeni sunucuları otomatik pasifleştirme ${req.body.autoBlockNewGuilds ? 'açıldı' : 'kapatıldı'}`);
+    res.json(centerPayload());
+  })
+);
+
+app.post(
+  '/api/guard/center/guild',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.body?.guildId);
+    const action = String(req.body?.action || '');
+    const actor = req.session.user.username;
+    const reason = req.body?.reason ? String(req.body.reason).slice(0, 200) : null;
+    let result = null;
+    if (action === 'approve') {
+      result = guard.approveGuild(guildId, { actor, note: req.body?.note || null });
+      settings.log(req.session.guildId, 'guard', `${actor} sunucuyu whitelist'e aldı: ${guildId}`);
+    } else if (action === 'revoke') {
+      result = guard.revokeGuild(guildId, { actor, reason });
+      settings.log(req.session.guildId, 'guard', `${actor} sunucuyu whitelist'ten çıkardı ve sessize aldı: ${guildId}${reason ? ` (${reason})` : ''}`);
+    } else if (action === 'silent') {
+      result = guard.setSilent(guildId, true, { actor, reason });
+      settings.log(req.session.guildId, 'guard', `${actor} sunucuyu sessize aldı: ${guildId}${reason ? ` (${reason})` : ''}`);
+    } else if (action === 'unsilent') {
+      result = guard.setSilent(guildId, false, { actor });
+      settings.log(req.session.guildId, 'guard', `${actor} sunucunun sessiz modunu kaldırdı: ${guildId}`);
+    } else if (action === 'enable' || action === 'disable') {
+      guard.setEnabled(guildId, action === 'enable', actor);
+      settings.log(req.session.guildId, 'guard', `${actor} sunucu görünür korumasını ${action === 'enable' ? 'açtı' : 'kapattı'}: ${guildId}`);
+    } else {
+      throw new Error('Bilinmeyen işlem. (approve, revoke, silent, unsilent, enable, disable)');
+    }
+    res.json({ ...centerPayload(), changed: centerRow(guildId), result: result || null });
+  })
+);
+
+app.get(
+  '/api/guard/center/guild/detail',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.query?.guildId);
+    const guild = centerGuild(guildId);
+    const cfg = guard.get(guildId);
+    const textChannels = guild
+      ? [...guild.channels.cache.values()].filter((c) => c.isTextBased && c.isTextBased()).map((c) => ({ id: c.id, name: c.name }))
+      : [];
+    const roles = guild
+      ? [...guild.roles.cache.values()].filter((r) => r.id !== guild.id && !r.managed).map((r) => ({ id: r.id, name: r.name }))
+      : [];
+    res.json({
+      ok: true,
+      guild: centerRow(guildId),
+      admin: guard.adminSummary(guildId, guild),
+      guard: { ...cfg, whitelist: guild ? guardWhitelistView(guild, cfg) : cfg.whitelist.map((id) => ({ id: String(id), name: String(id), bot: false })) },
+      modules: guard.MODULES,
+      limitActions: guard.LIMIT_ACTIONS,
+      punishments: guard.PUNISHMENTS,
+      events: guard.events(guildId, 60),
+      ops: guard.ops(200).filter((o) => o.guildId === String(guildId)),
+      textChannels,
+      roles,
+      online: Boolean(guild)
+    });
+  })
+);
+
+app.post(
+  '/api/guard/center/config',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.body?.guildId);
+    const guild = centerGuild(guildId);
+    const actor = req.session.user.username;
+    const body = req.body || {};
+    const patch = {};
+    if (body.logChannelId !== undefined) patch.logChannelId = body.logChannelId || null;
+    if (body.jailRoleId !== undefined) patch.jailRoleId = body.jailRoleId || null;
+    if (body.punishment !== undefined) {
+      if (!guard.PUNISHMENTS.some((p) => p.key === body.punishment)) throw new Error('Geçersiz ceza kuralı.');
+      patch.punishment = body.punishment;
+    }
+    if (body.windowSeconds !== undefined) {
+      const n = Math.floor(Number(body.windowSeconds));
+      if (!Number.isFinite(n) || n < 5 || n > 600) throw new Error('Pencere 5 ile 600 saniye arasında olmalı.');
+      patch.windowSeconds = n;
+    }
+    if (body.modules && typeof body.modules === 'object') {
+      const modules = {};
+      for (const m of guard.MODULES) {
+        if (body.modules[m.key] !== undefined) modules[m.key] = Boolean(body.modules[m.key]);
+      }
+      if (Object.keys(modules).length) patch.modules = modules;
+    }
+    if (body.limits && typeof body.limits === 'object') {
+      const limits = {};
+      for (const a of guard.LIMIT_ACTIONS) {
+        if (body.limits[a.key] === undefined) continue;
+        const n = Math.floor(Number(body.limits[a.key]));
+        if (!Number.isFinite(n) || n < 1 || n > 100) throw new Error(`${a.label} limiti 1 ile 100 arasında olmalı.`);
+        limits[a.key] = n;
+      }
+      if (Object.keys(limits).length) patch.limits = limits;
+    }
+    if (Array.isArray(body.whitelist)) {
+      patch.whitelist = body.whitelist.map((x) => String(x).replace(/[<@!>]/g, '')).filter((x) => /^\d{5,25}$/.test(x));
+    }
+    if (body.enabled !== undefined && Boolean(body.enabled) !== guard.get(guildId).enabled) {
+      guard.setEnabled(guildId, Boolean(body.enabled), actor);
+    }
+    if (Object.keys(patch).length) guard.update(guildId, patch);
+    guard.pushOps({ guildId, guildName: guild?.name || null, action: 'config', detail: `Ayarlar güncellendi: ${Object.keys(patch).join(', ') || 'enabled'}`, actor });
+    settings.log(req.session.guildId, 'guard', `${actor} guard merkezinden ayar güncelledi: ${guildId}`);
+    const updated = guard.get(guildId);
+    res.json({
+      ok: true,
+      guild: centerRow(guildId),
+      admin: guard.adminSummary(guildId, guild),
+      guard: {
+        ...updated,
+        whitelist: guild
+          ? guardWhitelistView(guild, updated)
+          : updated.whitelist.map((id) => ({ id: String(id), name: String(id), bot: false }))
+      }
+    });
+  })
+);
+
+app.post(
+  '/api/guard/center/note',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.body?.guildId);
+    const result = guard.setNote(guildId, req.body?.text || '', req.session.user.username);
+    res.json({ ok: true, note: result.note, guild: centerRow(guildId), ops: guard.ops(80) });
+  })
+);
+
+app.get(
+  '/api/guard/center/events',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.query?.guildId);
+    res.json({ ok: true, guildId, events: guard.events(guildId, 80), admin: guard.adminSummary(guildId, centerGuild(guildId)) });
+  })
+);
+
+app.post(
+  '/api/guard/center/events/clear',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.body?.guildId);
+    guard.clearEvents(guildId);
+    guard.pushOps({ guildId, guildName: centerGuild(guildId)?.name || null, action: 'events-clear', detail: 'Olay akışı temizlendi', actor: req.session.user.username });
+    res.json({ ok: true, guildId, events: [] });
+  })
+);
+
+app.post(
+  '/api/guard/center/test',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.body?.guildId);
+    const guild = centerGuild(guildId);
+    if (!guild) throw new Error('Bu sunucu bot önbelleğinde yok (bot çevrimdışı olabilir).');
+    const event = guard.runTest(guild, req.session.user.username);
+    guard.pushOps({ guildId, guildName: guild.name, action: 'test', detail: 'Örnek guard kaydı üretildi', actor: req.session.user.username });
+    res.json({ ok: true, event, events: guard.events(guildId, 80) });
+  })
+);
+
+app.post(
+  '/api/guard/center/backup',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guildId = requireGuildId(req.body?.guildId);
+    const guild = centerGuild(guildId);
+    if (!guild) throw new Error('Bu sunucu bot önbelleğinde yok (bot çevrimdışı olabilir).');
+    const result = guard.takeBackup(guild);
+    guard.pushOps({ guildId, guildName: guild.name, action: 'backup', detail: `Yedek alındı: ${result.roles} rol, ${result.channels} kanal`, actor: req.session.user.username });
+    res.json({ ok: true, ...result, guild: centerRow(guildId) });
+  })
+);
+
+app.get(
+  '/api/guard/center/ops',
+  requireAuth,
+  wrap(async (req, res) => {
+    res.json({ ok: true, ops: guard.ops(200) });
+  })
+);
+
+app.post(
+  '/api/guard/center/ops/clear',
+  requireAuth,
+  wrap(async (req, res) => {
+    guard.clearOps();
+    res.json({ ok: true, ops: [] });
   })
 );
 

@@ -63,7 +63,14 @@ const DEFAULT_GUARD = {
   modules: Object.fromEntries(MODULES.map((m) => [m.key, m.key !== 'spamGuard'])),
   limits: Object.fromEntries(LIMIT_ACTIONS.map((a) => [a.key, a.def])),
   backup: null,
-  enabledAt: null
+  enabledAt: null,
+  /* Operatör katmanı — bu alanlar Discord tarafında HİÇ gösterilmez. */
+  silent: false,        // sessiz mod: koruma çalışmaz ama durum normal görünür
+  silentAt: null,
+  silentReason: null,
+  addedAt: null,        // botun sunucuya eklendiği an
+  approvedAt: null,     // operatörün whitelist'e aldığı an
+  approvedBy: null
 };
 
 const ACTION_BY_KEY = Object.fromEntries(LIMIT_ACTIONS.map((a) => [a.key, a]));
@@ -285,6 +292,342 @@ function runTest(guild, actorName = null) {
   return ev;
 }
 
+/* ============================================================ OPERATÖR KATMANI
+   Bu bölüm YALNIZCA panelde (sitede) görünür ve düzenlenir; Discord tarafına
+   sızmaz. Kurallar:
+
+   1) Guard yalnızca operatörün whitelist'e aldığı sunucularda ÇALIŞIR.
+   2) Bota eklenen her yeni sunucu otomatik olarak pasif (onay bekliyor) başlar;
+      sahibi isterse ve operatör uygun görürse whitelist'e alınır.
+   3) Operatörün blacklist'e aldığı (sessize aldığı) sunucularda izleme hiç
+      çalışmaz; buna rağmen komutlar ve durum çıktısı değişmez, yani sunucu
+      korumanın kapalı olduğunu anlayamaz.
+   4) Sessiz modda hiçbir otomatik işlem yapılmaz ve HİÇBİR webhook oluşturulmaz.
+   ============================================================================ */
+const DEFAULT_POLICY = {
+  autoBlockNewGuilds: true, // eklenen her sunucu otomatik pasif başlar
+  allowed: [],              // operatör whitelist'i: korumanın çalıştığı sunucular
+  blocked: [],              // operatör blacklist'i: sessize alınan sunucular
+  notes: {},                // guildId -> { text, at } (yalnızca panelde)
+  roster: {},               // guildId -> { name, memberCount, addedAt, lastSeen }
+  updatedAt: null
+};
+
+const MAX_OPS = 200;
+
+function policy() {
+  const raw = db.guardPolicy && typeof db.guardPolicy === 'object' ? db.guardPolicy : {};
+  return {
+    autoBlockNewGuilds: raw.autoBlockNewGuilds !== false,
+    allowed: Array.isArray(raw.allowed) ? raw.allowed.map(String) : [],
+    blocked: Array.isArray(raw.blocked) ? raw.blocked.map(String) : [],
+    notes: raw.notes && typeof raw.notes === 'object' ? raw.notes : {},
+    roster: raw.roster && typeof raw.roster === 'object' ? raw.roster : {},
+    updatedAt: raw.updatedAt || null
+  };
+}
+
+function savePolicy(patch) {
+  const next = { ...policy(), ...(patch || {}) };
+  next.allowed = [...new Set((next.allowed || []).map(String))];
+  next.blocked = [...new Set((next.blocked || []).map(String))];
+  next.notes = next.notes && typeof next.notes === 'object' ? next.notes : {};
+  next.roster = next.roster && typeof next.roster === 'object' ? next.roster : {};
+  next.updatedAt = Date.now();
+  db.guardPolicy = next;
+  save();
+  return next;
+}
+
+function isAllowed(guildId) {
+  return policy().allowed.includes(String(guildId));
+}
+
+function isBlocked(guildId) {
+  return policy().blocked.includes(String(guildId));
+}
+
+/** Koruma bu sunucuda GERÇEKTEN çalışıyor mu? (Discord'a asla gösterilmez) */
+function isOperational(guildId) {
+  const cfg = get(guildId);
+  if (cfg.silent) return false;
+  if (isBlocked(guildId)) return false;
+  if (!isAllowed(guildId)) return false;
+  return Boolean(cfg.enabled);
+}
+
+/**
+ * Operatör gözüyle durum:
+ *  active  → whitelist'te ve koruma çalışıyor
+ *  idle    → whitelist'te ama sunucu korumayı kapatmış
+ *  silent  → blacklist'te (sessiz mod, sunucu farkında değil)
+ *  pending → whitelist'te değil, onay bekliyor
+ */
+function guildStatus(guildId) {
+  const id = String(guildId);
+  const cfg = get(id);
+  const p = policy();
+  if (p.blocked.includes(id)) return 'silent';
+  if (cfg.silent && !p.allowed.includes(id)) return 'pending';
+  if (cfg.silent) return 'silent';
+  if (!p.allowed.includes(id)) return 'pending';
+  return cfg.enabled ? 'active' : 'idle';
+}
+
+/* ------------------------------------------------------------- OPERATÖR KAYDI */
+/** Operatör işlemleri: yalnızca panelde listelenir, sunucunun olay akışına YAZILMAZ. */
+function pushOps(entry) {
+  if (!Array.isArray(db.guardOps)) db.guardOps = [];
+  const record = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    at: Date.now(),
+    guildId: String(entry.guildId || ''),
+    guildName: entry.guildName || null,
+    action: entry.action || 'note',
+    detail: entry.detail || '',
+    actor: entry.actor || 'panel'
+  };
+  db.guardOps.unshift(record);
+  db.guardOps = db.guardOps.slice(0, MAX_OPS);
+  save();
+  return record;
+}
+
+function ops(limit = 60) {
+  return (Array.isArray(db.guardOps) ? db.guardOps : []).slice(0, limit);
+}
+
+function clearOps() {
+  db.guardOps = [];
+  save();
+  return { ok: true };
+}
+
+function setNote(guildId, text, actor = 'panel') {
+  const id = String(guildId);
+  const p = policy();
+  const notes = { ...p.notes };
+  const clean = String(text || '').trim().slice(0, 300);
+  if (clean) notes[id] = { text: clean, at: Date.now() };
+  else delete notes[id];
+  savePolicy({ notes });
+  pushOps({ guildId: id, guildName: p.roster[id]?.name || null, action: 'note', detail: clean || 'Not silindi', actor });
+  return { ok: true, note: notes[id] || null };
+}
+
+/* --------------------------------------------------------- WHITELIST/BLACKLIST */
+/** Sessize al (blacklist) veya sessizden çıkar. Whitelist'e eklemez. */
+function setSilent(guildId, silent, options = {}) {
+  const id = String(guildId);
+  const reason = options.reason ? String(options.reason).slice(0, 200) : null;
+  const actor = options.actor || 'panel';
+  const p = policy();
+  if (silent) {
+    savePolicy({ blocked: [...p.blocked, id] });
+    update(id, { silent: true, silentAt: Date.now(), silentReason: reason || 'Operatör tarafından sessize alındı' });
+  } else {
+    savePolicy({ blocked: p.blocked.filter((x) => x !== id) });
+    update(id, { silent: false, silentAt: null, silentReason: null });
+  }
+  pushOps({
+    guildId: id,
+    guildName: p.roster[id]?.name || null,
+    action: silent ? 'silent-on' : 'silent-off',
+    detail: silent ? (reason || 'Koruma sessize alındı — sunucuya normal görünüyor') : 'Sessiz mod kaldırıldı (whitelist onayı ayrıca gerekir)',
+    actor
+  });
+  return { ok: true, status: guildStatus(id), admin: adminSummary(id) };
+}
+
+/** Whitelist'e al: koruma bu sunucuda gerçekten çalışmaya başlar. */
+function approveGuild(guildId, options = {}) {
+  const id = String(guildId);
+  const actor = options.actor || 'panel';
+  const note = options.note ? String(options.note).slice(0, 300) : null;
+  const p = policy();
+  const patch = { allowed: [...p.allowed, id], blocked: p.blocked.filter((x) => x !== id) };
+  if (note) patch.notes = { ...p.notes, [id]: { text: note, at: Date.now() } };
+  savePolicy(patch);
+  update(id, { silent: false, silentAt: null, silentReason: null, approvedAt: Date.now(), approvedBy: actor });
+  // Whitelist'e almak "koruma bu sunucuda çalışsın" demektir: görünür koruma da
+  // açılır (sunucu bunu /guard durum'da ve olay akışında normal şekilde görür).
+  if (!get(id).enabled) setEnabled(id, true, actor);
+  pushOps({ guildId: id, guildName: p.roster[id]?.name || null, action: 'approve', detail: note || 'Whitelist’e alındı — koruma çalışıyor', actor });
+  return { ok: true, status: guildStatus(id), admin: adminSummary(id) };
+}
+
+/** Whitelist'ten çıkar + sessize al. */
+function revokeGuild(guildId, options = {}) {
+  const id = String(guildId);
+  const actor = options.actor || 'panel';
+  const reason = options.reason ? String(options.reason).slice(0, 200) : 'Operatör tarafından pasife alındı';
+  const p = policy();
+  savePolicy({ allowed: p.allowed.filter((x) => x !== id), blocked: [...p.blocked, id] });
+  update(id, { silent: true, silentAt: Date.now(), silentReason: reason });
+  pushOps({ guildId: id, guildName: p.roster[id]?.name || null, action: 'revoke', detail: reason, actor });
+  return { ok: true, status: guildStatus(id), admin: adminSummary(id) };
+}
+
+function setAutoBlock(enabled, actor = 'panel') {
+  const p = savePolicy({ autoBlockNewGuilds: Boolean(enabled) });
+  pushOps({ guildId: '', action: 'policy', detail: `Yeni sunucuları otomatik pasifleştirme ${p.autoBlockNewGuilds ? 'açıldı' : 'kapatıldı'}`, actor });
+  return { ok: true, policy: p };
+}
+
+/* ------------------------------------------------------------------ SENKRON */
+/**
+ * Bot bir sunucuya eklendiğinde (veya açılışta) politikayı uygular.
+ * Yalnızca kayıt tutar: webhook oluşturmaz, mesaj göndermez, ceza uygulamaz.
+ */
+function syncGuild(guild) {
+  if (!guild || !guild.id) return null;
+  const id = String(guild.id);
+  const cfg = get(id);
+  const p = policy();
+  const name = guild.name || p.roster[id]?.name || id;
+  const memberCount = typeof guild.memberCount === 'number' ? guild.memberCount : (p.roster[id]?.memberCount ?? null);
+  const isNew = !cfg.addedAt;
+  const patch = {};
+  if (isNew) patch.addedAt = Date.now();
+  const willBlock = p.autoBlockNewGuilds && !p.allowed.includes(id) && !p.blocked.includes(id);
+  if (isNew && willBlock) {
+    patch.silent = true;
+    patch.silentAt = Date.now();
+    patch.silentReason = 'Yeni sunucu: operatör onayı bekleniyor';
+  }
+  if (Object.keys(patch).length) update(id, patch);
+  savePolicy({ roster: { ...p.roster, [id]: { name, memberCount, addedAt: cfg.addedAt || Date.now(), lastSeen: Date.now() } } });
+  if (isNew) {
+    pushOps({
+      guildId: id,
+      guildName: name,
+      action: willBlock ? 'auto-pending' : 'joined',
+      detail: willBlock ? 'Yeni sunucu eklendi — koruma otomatik pasif başladı (whitelist onayı bekliyor)' : 'Yeni sunucu eklendi — zaten whitelist içinde',
+      actor: 'bot'
+    });
+  }
+  return { id, name, status: guildStatus(id), isNew, operational: isOperational(id) };
+}
+
+function syncAll(client) {
+  const guilds = client?.guilds?.cache ? [...client.guilds.cache.values()] : [];
+  return guilds.map((g) => syncGuild(g)).filter(Boolean);
+}
+
+/* ------------------------------------------------------------------- LİSTELE */
+/** Panel için gerçek durum özeti (Discord'a giden summary'den farklıdır). */
+function adminSummary(guildId, guild = null) {
+  const id = String(guildId);
+  const cfg = get(id);
+  const p = policy();
+  const list = events(id, 50);
+  return {
+    ...summary(id, guild),
+    status: guildStatus(id),
+    operational: isOperational(id),
+    silent: Boolean(cfg.silent),
+    silentAt: cfg.silentAt || null,
+    silentReason: cfg.silentReason || null,
+    allowed: p.allowed.includes(id),
+    blocked: p.blocked.includes(id),
+    note: p.notes[id]?.text || null,
+    noteAt: p.notes[id]?.at || null,
+    addedAt: cfg.addedAt || p.roster[id]?.addedAt || null,
+    approvedAt: cfg.approvedAt || null,
+    approvedBy: cfg.approvedBy || null,
+    eventCount: list.length,
+    violations24h: list.filter((e) => e.type === 'violation' && Date.now() - e.at < 86400000).length
+  };
+}
+
+/** Guard Merkezi listesi: bottaki sunucular + kaydı olan (çevrimdışı) sunucular. */
+function guildStates(client) {
+  const p = policy();
+  const map = new Map();
+  const ensure = (id) => {
+    if (!map.has(id)) {
+      const known = p.roster[id] || {};
+      map.set(id, {
+        id,
+        name: known.name || get(id).guildName || id,
+        memberCount: known.memberCount ?? null,
+        online: false,
+        icon: null
+      });
+    }
+    return map.get(id);
+  };
+  Object.keys(p.roster || {}).forEach(ensure);
+  Object.keys(db.guard || {}).forEach(ensure);
+
+  const live = client?.guilds?.cache ? [...client.guilds.cache.values()] : [];
+  for (const g of live) {
+    const id = String(g.id);
+    const row = ensure(id);
+    row.name = g.name || row.name;
+    row.memberCount = typeof g.memberCount === 'number' ? g.memberCount : row.memberCount;
+    row.online = true;
+    row.icon = typeof g.iconURL === 'function' ? (g.iconURL({ size: 64 }) || null) : null;
+  }
+
+  const rows = [...map.values()].map((row) => {
+    const cfg = get(row.id);
+    const adm = adminSummary(row.id);
+    return {
+      ...row,
+      status: adm.status,
+      statusLabel: STATUS_LABEL[adm.status] || adm.status,
+      operational: adm.operational,
+      enabled: Boolean(cfg.enabled),
+      silent: Boolean(cfg.silent),
+      silentReason: adm.silentReason,
+      allowed: adm.allowed,
+      blocked: adm.blocked,
+      note: adm.note,
+      addedAt: adm.addedAt,
+      approvedAt: adm.approvedAt,
+      approvedBy: adm.approvedBy,
+      modulesActive: adm.modulesActive,
+      modulesTotal: adm.modulesTotal,
+      punishmentLabel: adm.punishmentLabel,
+      windowSeconds: adm.windowSeconds,
+      logChannelName: adm.logChannelName,
+      whitelistCount: adm.whitelistCount,
+      eventCount: adm.eventCount,
+      violations24h: adm.violations24h,
+      lastEvent: adm.lastEvent ? { title: adm.lastEvent.title, at: adm.lastEvent.at, severity: adm.lastEvent.severity } : null,
+      backup: adm.backup
+    };
+  });
+  const order = { pending: 0, silent: 1, active: 2, idle: 3 };
+  rows.sort((a, b) => (order[a.status] - order[b.status]) || String(a.name).localeCompare(String(b.name), 'tr'));
+  return rows;
+}
+
+const STATUS_LABEL = {
+  active: 'Koruma çalışıyor',
+  idle: 'Sunucu kapatmış',
+  silent: 'Sessizde (blacklist)',
+  pending: 'Onay bekliyor'
+};
+
+function policyStats(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const p = policy();
+  return {
+    total: list.length,
+    active: list.filter((r) => r.status === 'active').length,
+    idle: list.filter((r) => r.status === 'idle').length,
+    silent: list.filter((r) => r.status === 'silent').length,
+    pending: list.filter((r) => r.status === 'pending').length,
+    allowed: p.allowed.length,
+    blocked: p.blocked.length,
+    autoBlockNewGuilds: p.autoBlockNewGuilds,
+    opsCount: Array.isArray(db.guardOps) ? db.guardOps.length : 0,
+    updatedAt: p.updatedAt
+  };
+}
+
 /* ------------------------------------------------------------------ BİLDİRİM */
 function guardEmbed(cfg, ev) {
   const color = ev.severity === 'high' ? COLOR.err : ev.severity === 'medium' ? COLOR.warn : COLOR.main;
@@ -355,9 +698,14 @@ const INVITE_RE = /(discord\.(gg|io|me|li)|discordapp\.com\/invite|discord\.com\
 const joinStamps = new Map();   // guildId -> [zaman]
 const messageStamps = new Map(); // guildId:userId -> [zaman]
 
+/**
+ * İzleme yalnızca operatörün çalışmasına izin verdiği sunucularda aktif.
+ * Sessiz mod / blacklist / whitelist dışı sunucularda hiçbir şey kaydedilmez.
+ */
 function guardActive(guild) {
-  const cfg = get(guild.id);
-  return cfg.enabled && cfg;
+  if (!guild || !guild.id) return false;
+  if (!isOperational(guild.id)) return false;
+  return get(guild.id);
 }
 
 /** Denetim kaydı olayı: kim, ne yaptı, sınırı aştı mı? */
@@ -776,6 +1124,27 @@ module.exports = {
   summary,
   takeBackup,
   runTest,
+  DEFAULT_POLICY,
+  STATUS_LABEL,
+  policy,
+  savePolicy,
+  isAllowed,
+  isBlocked,
+  isOperational,
+  guildStatus,
+  setSilent,
+  approveGuild,
+  revokeGuild,
+  setAutoBlock,
+  setNote,
+  syncGuild,
+  syncAll,
+  adminSummary,
+  guildStates,
+  policyStats,
+  pushOps,
+  ops,
+  clearOps,
   registerAction,
   recordViolation,
   recordInfo,

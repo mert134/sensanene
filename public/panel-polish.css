@@ -476,3 +476,34 @@ code { background: var(--panel-2); border: 1px solid var(--line); border-radius:
 .log-row .ic .icon { width: 14px; height: 14px; }
 .action-btn .icon { width: 15px; height: 15px; }
 .channel-row .ico .icon { width: 15px; height: 15px; }
+
+/* ---------- GUARD MERKEZİ (operatör katmanı) ---------- */
+.gc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.gc-stat { border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 10px 12px; background: var(--bg-soft); transition: border-color .18s ease, transform .18s ease; }
+.gc-stat:hover { border-color: #2b3444; transform: translateY(-1px); }
+.gc-stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.gc-stat span { color: var(--muted); font-size: 11px; }
+.gc-stat.ok b { color: #8fcdae; }
+.gc-stat.off b { color: #e59a98; }
+.gc-stat.wait b { color: #d3b071; }
+
+.gc-row { border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 11px 12px; margin-bottom: 9px; background: var(--bg-soft); transition: border-color .18s ease; }
+.gc-row:hover { border-color: #2b3444; }
+.gc-row.open { border-color: #38456e; background: #12161d; }
+.gc-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.gc-title { font-weight: 600; font-size: 13.5px; display: inline-flex; align-items: center; gap: 7px; }
+.gc-id { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.gc-meta { color: var(--muted); font-size: 11.5px; line-height: 1.65; margin-top: 4px; }
+.gc-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+.gc-truth { font-size: 11.5px; padding: 6px 9px; border-radius: 6px; margin-top: 8px; border: 1px solid transparent; line-height: 1.5; }
+.gc-truth.on { background: #16211c; border-color: #26402f; color: #8fcdae; }
+.gc-truth.off { background: #221719; border-color: #3d2729; color: #e59a98; }
+.gc-truth.wait { background: #241f14; border-color: #3d3524; color: #d3b071; }
+.gc-truth.idle { background: #1a2033; border-color: #2b3557; color: #9fb0e8; }
+.gc-detail { margin-top: 11px; border-top: 1px solid var(--line-soft); padding-top: 11px; }
+.gc-note { display: flex; gap: 6px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+.gc-note .input { max-width: 340px; }
+.gc-filter { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.gc-inline-toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; cursor: pointer; user-select: none; }
+.gc-inline-toggle input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+.gc-mods { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }

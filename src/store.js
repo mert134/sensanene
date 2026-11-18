@@ -16,6 +16,8 @@ const DEFAULT_DB = {
   logs: {},       // guildId -> [kayıt]
   guard: {},      // guildId -> guard (koruma) yapılandırması
   guardEvents: {},// guildId -> [guard olayı]
+  guardPolicy: {},// operatör politikası: whitelist/blacklist + otomatik pasifleştirme
+  guardOps: [],   // operatör işlemleri (yalnızca panelde görünür, sunucuya sızmaz)
   meta: { created: Date.now() }
 };
 
@@ -32,6 +34,8 @@ function load() {
         logs: raw.logs || {},
         guard: raw.guard || {},
         guardEvents: raw.guardEvents || {},
+        guardPolicy: raw.guardPolicy || {},
+        guardOps: Array.isArray(raw.guardOps) ? raw.guardOps : [],
         meta: raw.meta || { created: Date.now() }
       };
     }
