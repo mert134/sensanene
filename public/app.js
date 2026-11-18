@@ -788,12 +788,15 @@ async function removeRole(userId, roleId, name) {
 
 /* ============================ KANALLAR ============================ */
 const CHANNEL_ICONS = { text: 'hash', voice: 'speaker', category: 'folder', announcement: 'megaphone', stage: 'mic', forum: 'message' };
-/* Gönderim kuyruğu: tek tek, tur tur. Discord sınırı 5 mesaj / 5 sn (kanal başına) ve 50 istek / sn (genel). */
-const SEND_PACING_MS = 420;
-const SEND_SAME_CHANNEL_PACING_MS = 1100;
-const SEND_PACING_JITTER_MS = 180;
-const SEND_RATE_LIMIT_WAIT_MS = 6000;
-const SEND_MAX_RATE_LIMIT_RETRY = 3;
+/* Gönderim kuyruğu: tur tur, kanal kanal ilerler. Tur içindeki kanallar sınırlı
+   sayıda işçiyle paralel gönderilir; aynı kanala iki mesaj arasında en az
+   SEND_MIN_CHANNEL_GAP_MS bırakılır (Discord: kanal başına 5 mesaj / 5 sn,
+   genel 50 istek / sn). */
+const SEND_CONCURRENCY = 8;
+const SEND_MIN_CHANNEL_GAP_MS = 1100;
+const SEND_MAX_REQUESTS_PER_SECOND = 25;
+const SEND_RATE_LIMIT_WAIT_MS = 5000;
+const SEND_MAX_RATE_LIMIT_RETRY = 4;
 
 async function loadChannels() {
   try {
@@ -1200,9 +1203,21 @@ function waitWhileActive(ms, isStopped) {
   });
 }
 
-function pacingDelay(previousChannelId, channelId) {
-  const base = previousChannelId === channelId ? SEND_SAME_CHANNEL_PACING_MS : SEND_PACING_MS;
-  return base + Math.floor(Math.random() * SEND_PACING_JITTER_MS);
+/** Genel istek hızını saniyede belirlenen sayıda tutar. */
+function createRequestThrottle(limitPerSecond) {
+  const stamps = [];
+  return async (isStopped) => {
+    for (;;) {
+      const now = Date.now();
+      while (stamps.length && now - stamps[0] >= 1000) stamps.shift();
+      if (stamps.length < limitPerSecond) {
+        stamps.push(now);
+        return;
+      }
+      await waitWhileActive(Math.max(20, 1000 - (now - stamps[0]) + 5), isStopped);
+      if (isStopped()) return;
+    }
+  };
 }
 
 function rateLimitWaitMs(err) {
@@ -1224,9 +1239,10 @@ function formatSendProgress(state) {
 }
 
 /**
- * Seçili kanallara mesajı sırayla gönderir: her turda kanallara birer mesaj,
- * tur bitince bir sonraki tur. Aynı anda tek istek açık olur; istekler arasında
- * Discord hız sınırlarına uygun kısa bir bekleme yapılır.
+ * Seçili kanallara mesajı tur tur gönderir: her turda kanalların her birine bir
+ * mesaj, tur bitince bir sonraki tur. Tur içinde kanallar sırayla alınır ama en
+ * fazla SEND_CONCURRENCY işçi aynı anda çalışır; aynı kanala iki mesaj arasında
+ * en az SEND_MIN_CHANNEL_GAP_MS bırakılır ve genel istek hızı sınırlanır.
  */
 async function sendMessageBatch(channels, content, repeatCount, options, onProgress) {
   if (stopActiveMessageBatch) throw new Error('Önceki gönderimin durması bekleniyor.');
@@ -1243,7 +1259,8 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
 
   const failedChannels = new Set();
   const startedAt = Date.now();
-  let previousChannelId = null;
+  const nextAllowedAt = new Map();
+  const throttle = createRequestThrottle(SEND_MAX_REQUESTS_PER_SECOND);
   let waitingMs = 0;
 
   const report = (channel, round) => {
@@ -1263,53 +1280,75 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
     });
   };
 
+  /** Aynı kanala art arda gönderim gerekiyorsa Discord sınırına kadar bekler. */
+  const waitForChannelSlot = async (channelId) => {
+    const readyAt = nextAllowedAt.get(channelId) || 0;
+    const wait = readyAt - Date.now();
+    if (wait > 0) await waitWhileActive(wait, () => stopRequested);
+    nextAllowedAt.set(channelId, Date.now() + SEND_MIN_CHANNEL_GAP_MS);
+  };
+
+  const sendOne = async (channel, round) => {
+    attempted += 1;
+    for (let tries = 0; tries <= SEND_MAX_RATE_LIMIT_RETRY; tries += 1) {
+      if (stopRequested) return;
+      try {
+        await waitForChannelSlot(channel.id);
+        if (stopRequested) return;
+        await throttle(() => stopRequested);
+        if (stopRequested) return;
+        const result = await api('/api/channels/message', {
+          method: 'POST',
+          body: {
+            channelId: channel.id,
+            content,
+            allowMentions: options.allowMentions,
+            allowEveryone: options.allowEveryone,
+            allowHere: options.allowHere,
+            anonymous: options.anonymous
+          }
+        });
+        if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
+        sent += 1;
+        return;
+      } catch (err) {
+        const message = err.message || 'Mesaj gönderilemedi.';
+        const wait = rateLimitWaitMs(err);
+        if (wait && tries < SEND_MAX_RATE_LIMIT_RETRY && !stopRequested) {
+          // Bu kanalı hız sınırı süresi kadar beklet; diğer kanallar devam etsin.
+          nextAllowedAt.set(channel.id, Date.now() + wait);
+          waitingMs = wait;
+          report(channel, round);
+          await waitWhileActive(wait, () => stopRequested);
+          waitingMs = 0;
+          continue;
+        }
+        failures.push({ channel: channel.name, error: message });
+        failedChannels.add(channel.id);
+        return;
+      }
+    }
+  };
+
   try {
     for (let round = 1; round <= repeatCount; round += 1) {
       if (stopRequested) break;
-      for (const channel of channels) {
-        if (stopRequested) break;
-        if (failedChannels.has(channel.id)) continue;
-        attempted += 1;
-        let delivered = false;
+      const targets = channels.filter((channel) => !failedChannels.has(channel.id));
+      if (!targets.length) break;
 
-        for (let tries = 0; tries <= SEND_MAX_RATE_LIMIT_RETRY; tries += 1) {
-          try {
-            const result = await api('/api/channels/message', {
-              method: 'POST',
-              body: {
-                channelId: channel.id,
-                content,
-                allowMentions: options.allowMentions,
-                allowEveryone: options.allowEveryone,
-                allowHere: options.allowHere,
-                anonymous: options.anonymous
-              }
-            });
-            if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
-            delivered = true;
-            sent += 1;
-            break;
-          } catch (err) {
-            const message = err.message || 'Mesaj gönderilemedi.';
-            const wait = rateLimitWaitMs(err);
-            if (wait && tries < SEND_MAX_RATE_LIMIT_RETRY && !stopRequested) {
-              waitingMs = wait;
-              report(channel, round);
-              await waitWhileActive(wait, () => stopRequested);
-              waitingMs = 0;
-              continue;
-            }
-            failures.push({ channel: channel.name, error: message });
-            failedChannels.add(channel.id);
-            break;
-          }
+      // Tur içinde kanallar sırayla alınır; en fazla SEND_CONCURRENCY tanesi aynı anda gider.
+      let nextTask = 0;
+      const workerCount = Math.min(SEND_CONCURRENCY, targets.length);
+      const worker = async () => {
+        while (!stopRequested) {
+          const index = nextTask++;
+          if (index >= targets.length) return;
+          const channel = targets[index];
+          await sendOne(channel, round);
+          report(channel, round);
         }
-
-        report(channel, round);
-        const delay = pacingDelay(previousChannelId, channel.id);
-        previousChannelId = channel.id;
-        if (!stopRequested) await waitWhileActive(delay, () => stopRequested);
-      }
+      };
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
     }
   } finally {
     if (stopActiveMessageBatch === stop) stopActiveMessageBatch = null;
@@ -1439,7 +1478,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Gönderim sırayla ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. İstekler arasında kısa bekleme yapılır; Discord hız sınırına takılırsa kuyruk bekler ve aynı kanaldan devam eder.` }),
+    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırına takılırsa o kanal bekler, diğerleri devam eder.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
