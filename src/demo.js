@@ -34,6 +34,16 @@ let channels = [
   { id: 'c6', name: 'muzik', type: 'voice', parentId: 'c-cat2', position: 7, topic: null }
 ];
 
+/* Demo: Anonymous webhook'u kanal açıldığı anda otomatik konur.
+   Gerçek sunucuda bu işi server.js'teki otomatik hazırlık yapar. */
+const readyWebhooks = new Set();
+const isWebhookable = (ch) => ['text', 'announcement'].includes(ch.type);
+const webhookStatusOf = (ch) => (isWebhookable(ch) ? (readyWebhooks.has(ch.id) ? 'ready' : 'missing') : null);
+const webhookSummary = () => {
+  const eligible = channels.filter(isWebhookable);
+  return { ready: eligible.filter((ch) => readyWebhooks.has(ch.id)).length, preparing: 0, eligible: eligible.length };
+};
+
 let roles = [
   { id: 'r1', name: 'Kurucu', color: '#f1c40f', position: 9, memberCount: 1, managed: false },
   { id: 'r2', name: 'Moderatör', color: '#2ecc71', position: 7, memberCount: 2, managed: false },
@@ -223,13 +233,21 @@ function router() {
 
   r.get('/api/bans', (req, res) => res.json({ bans }));
 
-  r.get('/api/channels', (req, res) => res.json({ channels }));
+  r.get('/api/channels', (req, res) => res.json({
+    channels: channels.map((ch) => ({ ...ch, anonymousWebhook: webhookStatusOf(ch) })),
+    webhookAuto: true,
+    webhooks: webhookSummary()
+  }));
 
   r.post('/api/channels/create', (req, res) => {
     const { name, type = 'text', categoryId } = req.body || {};
     if (!name) return res.json({ ok: false, error: 'Kanal ismi gerekli.' });
     const ch = { id: 'c' + Date.now(), name, type, parentId: categoryId || null, position: channels.length, topic: null };
     channels.push(ch);
+    if (isWebhookable(ch)) {
+      readyWebhooks.add(ch.id);
+      pushLog('site', `Anonymous webhook otomatik hazırlandı: #${ch.name}`);
+    }
     pushLog('channel', `"${name}" kanalı oluşturuldu`);
     res.json({ ok: true, message: `"${name}" kanalı oluşturuldu.`, channelId: ch.id });
   });
@@ -251,9 +269,18 @@ function router() {
 
   r.post('/api/channels/webhooks/warm', (req, res) => {
     const ids = [...new Set(Array.isArray(req.body?.channelIds) ? req.body.channelIds.map(String) : [])];
-    const eligible = ids.filter((id) => channels.some((c) => c.id === id && ['text', 'announcement'].includes(c.type)));
-    pushLog('site', `Webhook hazırlığı (demo): ${eligible.length} kanal`);
-    res.json({ ok: true, started: eligible.length, webhookGate: { limit: 8, active: 0, queued: 0 }, demo: true });
+    const eligible = ids.filter((id) => channels.some((c) => c.id === id && isWebhookable(c)));
+    const already = eligible.filter((id) => readyWebhooks.has(id)).length;
+    const pending = eligible.filter((id) => !readyWebhooks.has(id));
+    pending.forEach((id) => readyWebhooks.add(id));
+    if (pending.length) pushLog('site', `Webhook hazırlığı (demo): ${pending.length} kanal hazır`);
+    res.json({ ok: true, started: pending.length, ready: already, total: eligible.length, auto: true, webhookGate: { limit: 8, active: 0, queued: 0 }, demo: true });
+  });
+
+  r.get('/api/channels/webhooks/status', (req, res) => {
+    const eligible = channels.filter(isWebhookable);
+    const ready = eligible.filter((c) => readyWebhooks.has(c.id)).length;
+    res.json({ ok: true, auto: true, total: eligible.length, ready, preparing: 0, missing: eligible.length - ready, demo: true });
   });
 
   r.post('/api/channels/message', (req, res) => {
@@ -275,13 +302,24 @@ function router() {
     const ch = channels.find((c) => c.id === req.body.channelId);
     if (!ch) return res.json({ ok: false, error: 'Kanal bulunamadı.' });
     channels = channels.filter((c) => c.id !== ch.id && c.parentId !== ch.id);
+    readyWebhooks.delete(ch.id);
     pushLog('channel', `"${ch.name}" kanalı silindi`);
     res.json({ ok: true, message: `"${ch.name}" kanalı silindi.` });
   });
 
   r.post('/api/channels/bulk/create', (req, res) => {
     const names = Array.isArray(req.body.names) ? req.body.names : [];
-    names.forEach((name, i) => channels.push({ id: `bc${Date.now()}${i}`, name, type: req.body.type || 'text', parentId: req.body.categoryId || null, position: channels.length, topic: null }));
+    const created = [];
+    names.forEach((name, i) => {
+      const ch = { id: `bc${Date.now()}${i}`, name, type: req.body.type || 'text', parentId: req.body.categoryId || null, position: channels.length, topic: null };
+      channels.push(ch);
+      // Kanal açılır açılmaz Anonymous webhook'u otomatik konur.
+      if (isWebhookable(ch)) {
+        readyWebhooks.add(ch.id);
+        created.push(ch);
+      }
+    });
+    if (created.length) pushLog('site', `Anonymous webhook otomatik hazırlandı: ${created.length} yeni kanal`);
     res.json({ ok: names.length > 0, created: names.length, failed: 0, results: [] });
   });
 
@@ -318,6 +356,7 @@ function router() {
     }
     const before = channels.length;
     channels = channels.filter((c) => !ids.has(c.id));
+    ids.forEach((id) => readyWebhooks.delete(id));
     const deleted = before - channels.length;
     if (deleted) pushLog('channel', `Toplu silindi (${deleted} kanal)`);
     res.json({ ok: true, deleted, failed: [] });

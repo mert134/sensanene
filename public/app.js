@@ -13,11 +13,14 @@ const state = {
   roles: [],
   selectedRoles: new Set(),
   selectedMember: null,
-  settings: null
+  settings: null,
+  webhookStatus: null
 };
 
 let stopActiveMessageBatch = null;
 let stopActiveChannelCreation = null;
+let webhookWarmRunning = false;
+let webhookStatusTimer = null;
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, props = {}, children = []) => {
@@ -442,6 +445,9 @@ function navigate(section) {
   const [title, sub] = TITLES[section] || ['', ''];
   $('#pageTitle').textContent = title;
   $('#pageSub').textContent = sub;
+
+  // Kanallardan çıkınca webhook durumu izlemeyi bırak.
+  if (section !== 'channels') clearTimeout(webhookStatusTimer);
 
   if (section === 'dashboard') loadDashboard();
   if (section === 'members') loadMembers();
@@ -875,13 +881,65 @@ async function loadChannels() {
     const [d, c] = await Promise.all([api('/api/channels'), api('/api/settings')]);
     state.channels = d.channels;
     state.settings = c;
+    state.webhookStatus = d.webhooks
+      ? { total: d.webhooks.eligible, ready: d.webhooks.ready, preparing: d.webhooks.preparing, missing: Math.max(0, d.webhooks.eligible - d.webhooks.ready - d.webhooks.preparing) }
+      : null;
     const valid = new Set(d.channels.map((ch) => ch.id));
     state.selectedChannels = new Set([...state.selectedChannels].filter((id) => valid.has(id)));
     if ($('#channelCount')) $('#channelCount').textContent = d.channels.length;
     renderChannels();
+    autoPrepareWebhooks();
   } catch (err) {
     $('#channelList').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
   }
+}
+
+/**
+ * Anonymous webhook'ları kanal açıldığı anda sunucuda otomatik hazırlanır;
+ * bu yüzden gönderim sırasında webhook oluşturulmaz. Panel listeyle birlikte
+ * eksik kalan kanalları arka planda tamamlar ve durumu satırda gösterir.
+ */
+function renderWebhookStatus() {
+  const box = $('#webhookStatus');
+  if (!box) return;
+  const s = state.webhookStatus
+    || (() => {
+      const eligible = state.channels.filter((ch) => ch.anonymousWebhook);
+      const ready = eligible.filter((ch) => ch.anonymousWebhook === 'ready').length;
+      return { total: eligible.length, ready, preparing: 0, missing: eligible.length - ready };
+    })();
+  if (!s.total) {
+    box.textContent = '';
+    return;
+  }
+  box.textContent = s.missing === 0 && s.preparing === 0
+    ? `Anonymous webhook: ${s.ready}/${s.total} kanalda hazır — mesaj gönderirken webhook oluşturulmaz.`
+    : `Anonymous webhook otomatik hazırlanıyor: ${s.ready}/${s.total} hazır${s.preparing ? `, ${s.preparing} hazırlanıyor` : ''} — gönderim başlamadan tamamlanır.`;
+}
+
+function autoPrepareWebhooks() {
+  const missing = state.channels.filter((ch) => ch.anonymousWebhook === 'missing').map((ch) => ch.id);
+  if (!missing.length || webhookWarmRunning) return;
+  webhookWarmRunning = true;
+  api('/api/channels/webhooks/warm', { method: 'POST', body: { channelIds: missing } })
+    .then(() => watchWebhookStatus())
+    .catch(() => {})
+    .finally(() => { webhookWarmRunning = false; });
+}
+
+/** Hazırlık sürerken durumu hafif bir uçtan izler; tamamlanınca durur. */
+function watchWebhookStatus(tries = 40) {
+  clearTimeout(webhookStatusTimer);
+  if (tries <= 0) return;
+  webhookStatusTimer = setTimeout(() => {
+    api('/api/channels/webhooks/status')
+      .then((r) => {
+        state.webhookStatus = { total: r.total, ready: r.ready, preparing: r.preparing, missing: r.missing };
+        renderWebhookStatus();
+        if (r.missing > 0 || r.preparing > 0) watchWebhookStatus(tries - 1);
+      })
+      .catch(() => {});
+  }, 2500);
 }
 
 function updateBulkBar() {
@@ -933,6 +991,7 @@ function renderChannels() {
   const box = $('#channelList');
   box.innerHTML = '';
   updateBulkBar();
+  renderWebhookStatus();
   if (!state.channels.length) {
     box.innerHTML = '<div class="empty">Kanal yok.</div>';
     return;
@@ -1402,8 +1461,8 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
   /** Beklerken arayüzün donmuş görünmemesi için saniyede bir ilerleme yayınlar. */
   const heartbeat = setInterval(() => report(), 1000);
 
-  // Anonim modda webhook oluşturması yavaştır: gönderim yoluna girmeden
-  // sunucuya listeyi verip webhook'ları arka planda hazırlatıyoruz.
+  // Webhook'lar kanal açıldığı anda sunucuda otomatik hazırlanır; bu çağrı
+  // yalnızca eksik kalan kanalları gönderimden önce tamamlayan güvenlik ağıdır.
   if (options.anonymous) {
     api('/api/channels/webhooks/warm', { method: 'POST', body: { channelIds: channels.map((channel) => channel.id) } })
       .catch(() => {});
@@ -1632,7 +1691,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; ${SEND_REQUEST_TIMEOUT_MS / 1000} sn içinde yanıt vermeyen kanal tekrar denenmez, atlanır ve sonuçta listelenir — böylece kuyruk hiç kilitlenmez.${anonymousInput.checked ? ' Anonymous webhook’ları gönderimle eşzamanlı olarak arka planda hazırlanır.' : ''}` }),
+    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; ${SEND_REQUEST_TIMEOUT_MS / 1000} sn içinde yanıt vermeyen kanal tekrar denenmez, atlanır ve sonuçta listelenir — böylece kuyruk hiç kilitlenmez.${anonymousInput.checked ? ' Anonymous webhook’ları kanal açıldığı anda otomatik hazırlanır, gönderimde webhook oluşturulmaz.' : ''}` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
