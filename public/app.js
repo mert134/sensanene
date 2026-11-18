@@ -791,10 +791,20 @@ const CHANNEL_ICONS = { text: 'hash', voice: 'speaker', category: 'folder', anno
 /* Gönderim kuyruğu: tur tur, kanal kanal ilerler. Tur içindeki kanallar sınırlı
    sayıda işçiyle paralel gönderilir; aynı kanala iki mesaj arasında en az
    SEND_MIN_CHANNEL_GAP_MS bırakılır (Discord: kanal başına 5 mesaj / 5 sn,
-   genel 50 istek / sn). */
-const SEND_CONCURRENCY = 8;
+   genel 50 istek / sn).
+   Hız sabit değildir: yanıtlar yavaşlar veya Discord 429 dönerse eşzamanlılık
+   yarıya iner, işler tekrar hızlanınca kademeli olarak yükselir. İstekler
+   zaman aşımına bağlıdır; hiçbir istek kuyruğu sonsuza kadar kilitleyemez. */
+const SEND_START_CONCURRENCY = 5;
+const SEND_MAX_CONCURRENCY = 8;
+const SEND_MIN_CONCURRENCY = 2;
+const SEND_RAMP_UP_AFTER = 12;
 const SEND_MIN_CHANNEL_GAP_MS = 1100;
 const SEND_MAX_REQUESTS_PER_SECOND = 25;
+const SEND_REQUEST_TIMEOUT_MS = 25000;
+const SEND_MAX_TIMEOUT_RETRY = 2;
+const SEND_SLOW_RESPONSE_MS = 2500;
+const SEND_BACKOFF_MS = 4000;
 const SEND_RATE_LIMIT_WAIT_MS = 5000;
 const SEND_MAX_RATE_LIMIT_RETRY = 4;
 
@@ -1203,19 +1213,43 @@ function waitWhileActive(ms, isStopped) {
   });
 }
 
-/** Genel istek hızını saniyede belirlenen sayıda tutar. */
-function createRequestThrottle(limitPerSecond) {
+/** Genel istek hızını saniyede belirlenen sayıda tutar (limit dinamik olabilir). */
+function createRequestThrottle(limit) {
   const stamps = [];
+  const limitOf = () => Math.max(1, typeof limit === 'function' ? limit() : limit);
   return async (isStopped) => {
     for (;;) {
       const now = Date.now();
       while (stamps.length && now - stamps[0] >= 1000) stamps.shift();
-      if (stamps.length < limitPerSecond) {
+      if (stamps.length < limitOf()) {
         stamps.push(now);
         return;
       }
       await waitWhileActive(Math.max(20, 1000 - (now - stamps[0]) + 5), isStopped);
       if (isStopped()) return;
+    }
+  };
+}
+
+/** Yanıt sürelerine göre eşzamanlılığı kendi ayarlayan hız denetleyicisi. */
+function createSendPacer() {
+  let concurrency = SEND_START_CONCURRENCY;
+  let fastStreak = 0;
+  return {
+    get concurrency() { return concurrency; },
+    noteSuccess(latencyMs) {
+      if (latencyMs > SEND_SLOW_RESPONSE_MS) return this.notePressure();
+      fastStreak += 1;
+      if (fastStreak >= SEND_RAMP_UP_AFTER && concurrency < SEND_MAX_CONCURRENCY) {
+        concurrency += 1;
+        fastStreak = 0;
+      }
+      return concurrency;
+    },
+    notePressure() {
+      fastStreak = 0;
+      concurrency = Math.max(SEND_MIN_CONCURRENCY, Math.floor(concurrency / 2));
+      return concurrency;
     }
   };
 }
@@ -1233,7 +1267,11 @@ function formatSendProgress(state) {
   if (state.rounds > 1) parts.push(`Tur ${state.round}/${state.rounds}`);
   if (state.channel) parts.push(`#${state.channel.name}`);
   parts.push(`${state.sent}/${state.total} mesaj`);
-  if (state.waitingMs) return `${parts.join(' · ')} · hız sınırı bekleniyor (${formatDuration(state.waitingMs)})`;
+  if (state.waitingMs) {
+    return `${parts.join(' · ')} · ${state.waitReason || 'Bekleniyor'} (${formatDuration(state.waitingMs)} · hız ${state.concurrency})`;
+  }
+  if (state.rate) parts.push(`${state.rate}/sn`);
+  if (state.concurrency < SEND_MAX_CONCURRENCY) parts.push(`hız ${state.concurrency}`);
   if (state.remainingMs >= 1000) parts.push(`kalan ~${formatDuration(state.remainingMs)}`);
   return parts.join(' · ');
 }
@@ -1241,7 +1279,7 @@ function formatSendProgress(state) {
 /**
  * Seçili kanallara mesajı tur tur gönderir: her turda kanalların her birine bir
  * mesaj, tur bitince bir sonraki tur. Tur içinde kanallar sırayla alınır ama en
- * fazla SEND_CONCURRENCY işçi aynı anda çalışır; aynı kanala iki mesaj arasında
+ * fazla SEND_MAX_CONCURRENCY işçi aynı anda çalışır; aynı kanala iki mesaj arasında
  * en az SEND_MIN_CHANNEL_GAP_MS bırakılır ve genel istek hızı sınırlanır.
  */
 async function sendMessageBatch(channels, content, repeatCount, options, onProgress) {
@@ -1254,16 +1292,24 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
   let attempted = 0;
   const failures = [];
   let stopRequested = false;
-  const stop = () => { stopRequested = true; };
+  const inflight = new Set();
+  const stop = () => {
+    stopRequested = true;
+    for (const controller of inflight) controller.abort();
+  };
   stopActiveMessageBatch = stop;
 
   const failedChannels = new Set();
   const startedAt = Date.now();
   const nextAllowedAt = new Map();
-  const throttle = createRequestThrottle(SEND_MAX_REQUESTS_PER_SECOND);
+  const pacer = createSendPacer();
+  const throttle = createRequestThrottle(() => Math.min(SEND_MAX_REQUESTS_PER_SECOND, pacer.concurrency * 4));
   let waitingMs = 0;
+  let waitReason = '';
+  let currentChannel = null;
+  let currentRound = 1;
 
-  const report = (channel, round) => {
+  const report = () => {
     if (!onProgress) return;
     const done = sent + failures.length;
     const elapsed = Date.now() - startedAt;
@@ -1272,10 +1318,13 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
       attempted,
       total,
       failures,
-      channel,
-      round,
+      channel: currentChannel,
+      round: currentRound,
       rounds: repeatCount,
       waitingMs,
+      waitReason,
+      concurrency: pacer.concurrency,
+      rate: elapsed > 3000 && sent > 0 ? Math.round((sent / elapsed) * 10000) / 10 : 0,
       remainingMs: done >= 3 && done < total ? Math.round((elapsed / done) * (total - done)) : 0
     });
   };
@@ -1288,10 +1337,21 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
     nextAllowedAt.set(channelId, Date.now() + SEND_MIN_CHANNEL_GAP_MS);
   };
 
+  /** Beklerken arayüzün donmuş görünmemesi için saniyede bir ilerleme yayınlar. */
+  const heartbeat = setInterval(() => report(), 1000);
+
   const sendOne = async (channel, round) => {
     attempted += 1;
+    currentChannel = channel;
+    currentRound = round;
+    let timeoutRetries = 0;
+
     for (let tries = 0; tries <= SEND_MAX_RATE_LIMIT_RETRY; tries += 1) {
       if (stopRequested) return;
+      const startedAtMs = Date.now();
+      const controller = new AbortController();
+      inflight.add(controller);
+      const timer = setTimeout(() => controller.abort(), SEND_REQUEST_TIMEOUT_MS);
       try {
         await waitForChannelSlot(channel.id);
         if (stopRequested) return;
@@ -1299,6 +1359,7 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
         if (stopRequested) return;
         const result = await api('/api/channels/message', {
           method: 'POST',
+          signal: controller.signal,
           body: {
             channelId: channel.id,
             content,
@@ -1310,22 +1371,50 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
         });
         if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
         sent += 1;
+        pacer.noteSuccess(Date.now() - startedAtMs);
         return;
       } catch (err) {
-        const message = err.message || 'Mesaj gönderilemedi.';
+        if (stopRequested) return;
+        const timedOut = err?.name === 'AbortError' || /abort/i.test(String(err?.message || ''));
         const wait = rateLimitWaitMs(err);
-        if (wait && tries < SEND_MAX_RATE_LIMIT_RETRY && !stopRequested) {
-          // Bu kanalı hız sınırı süresi kadar beklet; diğer kanallar devam etsin.
-          nextAllowedAt.set(channel.id, Date.now() + wait);
-          waitingMs = wait;
-          report(channel, round);
-          await waitWhileActive(wait, () => stopRequested);
+
+        if (timedOut) {
+          // Sunucu yanıt vermedi: hızı düşür, kısa bir genel mola ver, aynı kanalı yeniden dene.
+          timeoutRetries += 1;
+          pacer.notePressure();
+          if (timeoutRetries > SEND_MAX_TIMEOUT_RETRY) {
+            failures.push({ channel: channel.name, error: 'Zaman aşımı: sunucu bu kanala mesajı gönderemedi.' });
+            failedChannels.add(channel.id);
+            return;
+          }
+          waitingMs = SEND_BACKOFF_MS;
+          waitReason = 'Sunucu yanıt vermedi, hız düşürülüp bekleniyor';
+          report();
+          await waitWhileActive(SEND_BACKOFF_MS, () => stopRequested);
           waitingMs = 0;
+          waitReason = '';
           continue;
         }
-        failures.push({ channel: channel.name, error: message });
+
+        if (wait && tries < SEND_MAX_RATE_LIMIT_RETRY) {
+          // Hız sınırı: bu kanalı beklet, genel hızı da düşür; diğer kanallar devam etsin.
+          pacer.notePressure();
+          nextAllowedAt.set(channel.id, Date.now() + wait);
+          waitingMs = wait;
+          waitReason = 'Discord hız sınırı bekleniyor';
+          report();
+          await waitWhileActive(wait, () => stopRequested);
+          waitingMs = 0;
+          waitReason = '';
+          continue;
+        }
+
+        failures.push({ channel: channel.name, error: err?.message || 'Mesaj gönderilemedi.' });
         failedChannels.add(channel.id);
         return;
+      } finally {
+        clearTimeout(timer);
+        inflight.delete(controller);
       }
     }
   };
@@ -1336,21 +1425,27 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
       const targets = channels.filter((channel) => !failedChannels.has(channel.id));
       if (!targets.length) break;
 
-      // Tur içinde kanallar sırayla alınır; en fazla SEND_CONCURRENCY tanesi aynı anda gider.
+      // Tur içinde kanallar sırayla alınır; hız denetleyicisinin izin verdiği kadarı aynı anda gider.
       let nextTask = 0;
-      const workerCount = Math.min(SEND_CONCURRENCY, targets.length);
-      const worker = async () => {
+      const workerCount = Math.min(SEND_MAX_CONCURRENCY, targets.length);
+      const worker = async (slot) => {
         while (!stopRequested) {
+          // Turdaki işler tükendiyse bu işçi biter; hız düşse bile burada takılı kalmaz.
+          if (nextTask >= targets.length) return;
+          if (slot >= pacer.concurrency) {
+            await waitWhileActive(150, () => stopRequested);
+            continue;
+          }
           const index = nextTask++;
           if (index >= targets.length) return;
-          const channel = targets[index];
-          await sendOne(channel, round);
-          report(channel, round);
+          await sendOne(targets[index], round);
+          report();
         }
       };
-      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      await Promise.all(Array.from({ length: workerCount }, (_, slot) => worker(slot)));
     }
   } finally {
+    clearInterval(heartbeat);
     if (stopActiveMessageBatch === stop) stopActiveMessageBatch = null;
   }
 
@@ -1478,7 +1573,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırına takılırsa o kanal bekler, diğerleri devam eder.` }),
+    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; hiçbir istek ${SEND_REQUEST_TIMEOUT_MS / 1000} sn'den fazla bekletilmez.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
