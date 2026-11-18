@@ -794,17 +794,17 @@ const CHANNEL_ICONS = { text: 'hash', voice: 'speaker', category: 'folder', anno
    genel 50 istek / sn).
    Hız sabit değildir: yanıtlar yavaşlar veya Discord 429 dönerse eşzamanlılık
    yarıya iner, işler tekrar hızlanınca kademeli olarak yükselir. İstekler
-   zaman aşımına bağlıdır; hiçbir istek kuyruğu sonsuza kadar kilitleyemez. */
-const SEND_START_CONCURRENCY = 5;
-const SEND_MAX_CONCURRENCY = 8;
+   zaman aşımına bağlıdır; hiçbir istek kuyruğu sonsuza kadar kilitleyemez.
+   Zaman aşımında tekrar DENENMEZ: yeniden denemek sunucudaki Discord kuyruğunu
+   daha da şişirip donmayı beslediği için o kanal atlanır ve sonuçta listelenir. */
+const SEND_START_CONCURRENCY = 4;
+const SEND_MAX_CONCURRENCY = 6;
 const SEND_MIN_CONCURRENCY = 2;
 const SEND_RAMP_UP_AFTER = 12;
 const SEND_MIN_CHANNEL_GAP_MS = 1100;
-const SEND_MAX_REQUESTS_PER_SECOND = 25;
-const SEND_REQUEST_TIMEOUT_MS = 25000;
-const SEND_MAX_TIMEOUT_RETRY = 2;
-const SEND_SLOW_RESPONSE_MS = 2500;
-const SEND_BACKOFF_MS = 4000;
+const SEND_MAX_REQUESTS_PER_SECOND = 20;
+const SEND_REQUEST_TIMEOUT_MS = 45000;
+const SEND_SLOW_RESPONSE_MS = 4000;
 const SEND_RATE_LIMIT_WAIT_MS = 5000;
 const SEND_MAX_RATE_LIMIT_RETRY = 4;
 
@@ -1344,7 +1344,6 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
     attempted += 1;
     currentChannel = channel;
     currentRound = round;
-    let timeoutRetries = 0;
 
     for (let tries = 0; tries <= SEND_MAX_RATE_LIMIT_RETRY; tries += 1) {
       if (stopRequested) return;
@@ -1379,21 +1378,12 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
         const wait = rateLimitWaitMs(err);
 
         if (timedOut) {
-          // Sunucu yanıt vermedi: hızı düşür, kısa bir genel mola ver, aynı kanalı yeniden dene.
-          timeoutRetries += 1;
+          // Sunucu bu kanala 45 sn içinde yanıt veremedi: tekrar DENEME.
+          // Yeniden denemek sunucudaki Discord kuyruğunu şişirip donmayı besler.
           pacer.notePressure();
-          if (timeoutRetries > SEND_MAX_TIMEOUT_RETRY) {
-            failures.push({ channel: channel.name, error: 'Zaman aşımı: sunucu bu kanala mesajı gönderemedi.' });
-            failedChannels.add(channel.id);
-            return;
-          }
-          waitingMs = SEND_BACKOFF_MS;
-          waitReason = 'Sunucu yanıt vermedi, hız düşürülüp bekleniyor';
-          report();
-          await waitWhileActive(SEND_BACKOFF_MS, () => stopRequested);
-          waitingMs = 0;
-          waitReason = '';
-          continue;
+          failures.push({ channel: channel.name, error: 'Zaman aşımı: sunucu yoğun, bu kanal atlandı.' });
+          failedChannels.add(channel.id);
+          return;
         }
 
         if (wait && tries < SEND_MAX_RATE_LIMIT_RETRY) {
@@ -1573,7 +1563,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; hiçbir istek ${SEND_REQUEST_TIMEOUT_MS / 1000} sn'den fazla bekletilmez.` }),
+    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; ${SEND_REQUEST_TIMEOUT_MS / 1000} sn içinde yanıt vermeyen kanal tekrar denenmez, atlanır ve sonuçta listelenir — böylece kuyruk hiç kilitlenmez.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
