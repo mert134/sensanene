@@ -19,12 +19,26 @@ const { db } = require('./src/store');
 
 const app = express();
 const anonymousWebhookCache = new Map();
+const anonymousWebhookInflight = new Map();
 const PORT = process.env.PORT || 10000;
 
 async function getAnonymousWebhook(channel) {
-  const cached = anonymousWebhookCache.get(String(channel.id));
+  const key = String(channel.id);
+  const cached = anonymousWebhookCache.get(key);
   if (cached) return cached;
 
+  // Aynı kanal için eşzamanlı istekler webhook'u birden fazla kez oluşturmasın.
+  const inflight = anonymousWebhookInflight.get(key);
+  if (inflight) return inflight;
+
+  const pending = resolveAnonymousWebhook(channel, key).finally(() => {
+    anonymousWebhookInflight.delete(key);
+  });
+  anonymousWebhookInflight.set(key, pending);
+  return pending;
+}
+
+async function resolveAnonymousWebhook(channel, key) {
   const hooks = await channel.fetchWebhooks();
   let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
   if (hook && hook.name !== 'Anonymous') {
