@@ -33,6 +33,82 @@ const el = (tag, props = {}, children = []) => {
   return node;
 };
 
+/* ---------------- İKONLAR (24x24, çizgi ikon) ---------------- */
+const ICONS = {
+  sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="3.5"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.6a4 4 0 0 1 0 7.75"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  userX: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/>',
+  hash: '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
+  tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><line x1="7.5" y1="7.5" x2="7.51" y2="7.5"/>',
+  dice: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.1"/><circle cx="15.5" cy="15.5" r="1.1"/><circle cx="12" cy="12" r="1.1"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.4-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 3.1V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1.1h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.7 1z"/>',
+  list: '<line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><line x1="4" y1="6" x2="4.01" y2="6"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="18" x2="4.01" y2="18"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  search: '<circle cx="11" cy="11" r="7.5"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>',
+  refresh: '<polyline points="21 4 21 10 15 10"/><path d="M18.4 15a8 8 0 1 1-1.9-8.3L21 10"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19.5C5.6 19.5 2 12.5 2 12.5a18 18 0 0 1 4.6-5.6"/><path d="M9.9 5.2A10 10 0 0 1 12 5c6.4 0 10 7 10 7a18.4 18.4 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><line x1="2.5" y1="2.5" x2="21.5" y2="21.5"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  checkSquare: '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  square: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 6V4.5a1.5 1.5 0 0 1 1.5-1.5h1A1.5 1.5 0 0 1 14 4.5V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  bot: '<rect x="3" y="8" width="18" height="12" rx="2.5"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/><path d="M12 8V4.5"/><circle cx="12" cy="3.2" r="1.2"/>',
+  crown: '<path d="M3.5 18h17"/><path d="M4.5 15 3.2 6.6 8.4 10 12 4l3.6 6 5.2-3.4L19.5 15z"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/>',
+  micOff: '<line x1="2" y1="2" x2="22" y2="22"/><path d="M9 9.5V12a3 3 0 0 0 5.1 2.1"/><path d="M15 9.3V5a3 3 0 0 0-5.9-.7"/><path d="M17.5 16.4A7 7 0 0 1 5 12v-1.5"/><path d="M19 10.5V12a7 7 0 0 1-.3 1.9"/><line x1="12" y1="19" x2="12" y2="22.5"/><line x1="8.5" y1="22.5" x2="15.5" y2="22.5"/>',
+  mic: '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 11v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22.5"/><line x1="8.5" y1="22.5" x2="15.5" y2="22.5"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13.5"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  megaphone: '<path d="M3 11v2.5a1.5 1.5 0 0 0 1.5 1.5H6l4 4V6L6 10H4.5A1.5 1.5 0 0 0 3 11z"/><path d="M14 8.5a4.5 4.5 0 0 1 0 7"/><path d="M17.5 5.5a9 9 0 0 1 0 13"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  speaker: '<rect x="4" y="2" width="16" height="20" rx="2.5"/><circle cx="12" cy="14" r="3.5"/><line x1="12" y1="6" x2="12.01" y2="6"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+  clock: '<circle cx="12" cy="12" r="9.5"/><polyline points="12 6.5 12 12 15.5 14"/>',
+  gift: '<rect x="2.5" y="7.5" width="19" height="4.5" rx="1"/><path d="M4.5 12v8.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V12"/><line x1="12" y1="7.5" x2="12" y2="22"/><path d="M12 7.5H8a2.2 2.2 0 0 1 0-4.5c2 0 4 4.5 4 4.5z"/><path d="M12 7.5h4a2.2 2.2 0 0 0 0-4.5c-2 0-4 4.5-4 4.5z"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M14.6 9.4A2.7 2.7 0 0 0 12 8.3c-1.5 0-2.6.8-2.6 1.9s1.1 1.9 2.6 1.9 2.6.8 2.6 1.9-1.1 1.9-2.6 1.9a2.7 2.7 0 0 1-2.6-1.1"/><line x1="12" y1="6.3" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="17.7"/>',
+  trophy: '<path d="M7 4h10v4.5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2 2 0 0 0 2 4"/><path d="M17 6h2.5a2 2 0 0 1-2 4"/><line x1="12" y1="13.5" x2="12" y2="18"/><path d="M8.5 20.5h7"/><path d="M10 18h4l1 2.5H9z"/>',
+  chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  lock: '<rect x="3.5" y="11" width="17" height="10.5" rx="2"/><path d="M7.5 11V7a4.5 4.5 0 0 1 9 0v4"/>',
+  unlock: '<rect x="3.5" y="11" width="17" height="10.5" rx="2"/><path d="M7.5 11V7a4.5 4.5 0 0 1 8.8-1.4"/>',
+  home: '<path d="M3 9.7 12 3l9 6.7V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12.5 15 12.5 15 22"/>',
+  octagon: '<polygon points="7.9 2 16.1 2 22 7.9 22 16.1 16.1 22 7.9 22 2 16.1 2 7.9"/><line x1="12" y1="7.5" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/>',
+  wrench: '<path d="M20.8 5.6a5.2 5.2 0 0 1-6.9 6.7L5.4 20.8a1.9 1.9 0 0 1-2.7-2.7l8.5-8.5a5.2 5.2 0 0 1 6.7-6.9L14.6 6l.6 2.8 2.8.6z"/>',
+  shield: '<path d="M12 22s8-3.6 8-9.6V5.2L12 2.2 4 5.2v7.2C4 18.4 12 22 12 22z"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  terminal: '<polyline points="4 17 10 11.5 4 6"/><line x1="12.5" y1="19" x2="20" y2="19"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>'
+};
+
+/** HTML içine gömülecek ikon. */
+function iconSvg(name, className = 'icon') {
+  const body = ICONS[name];
+  return body
+    ? `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+    : '';
+}
+
+/** DOM düğümü olarak ikon. */
+function iconEl(name, className = 'icon') {
+  const holder = el('span');
+  holder.innerHTML = iconSvg(name, className);
+  return holder.firstElementChild || holder;
+}
+
+/** İkon + metin ikilisi (buton ve menü öğeleri için). */
+function withIcon(name, label, className = 'icon') {
+  return [iconEl(name, className), el('span', { text: label })];
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -45,7 +121,12 @@ async function api(path, options = {}) {
     throw new Error(data.error || 'Erişim reddedildi.');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Hata (${res.status})`);
+  if (!res.ok) {
+    const error = new Error(data.error || `Hata (${res.status})`);
+    error.status = res.status;
+    error.detail = data;
+    throw error;
+  }
   return data;
 }
 
@@ -103,6 +184,11 @@ function togglePass() {
   const inp = $('#loginPass');
   if (!inp) return;
   inp.type = inp.type === 'password' ? 'text' : 'password';
+  const btn = $('#togglePassBtn');
+  if (btn) {
+    btn.innerHTML = iconSvg(inp.type === 'password' ? 'eye' : 'eyeOff');
+    btn.title = inp.type === 'password' ? 'Şifreyi göster' : 'Şifreyi gizle';
+  }
 }
 
 async function submitLogin(e) {
@@ -120,7 +206,7 @@ async function submitLogin(e) {
   } catch (err) {
     renderLogin(state.me, err.message || 'Giriş başarısız.');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔓 Giriş Yap'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Giriş yap'; }
   }
 }
 
@@ -130,7 +216,7 @@ function renderLogin(me, hata = '') {
   if (!box) return;
   let html = '';
   if (hata) {
-    html += `<div class="warn-box" style="background:rgba(237,66,69,.14);border-color:rgba(237,66,69,.45);color:#ff9c9e"><b>⛔</b> ${esc(hata)}</div>`;
+    html += `<div class="warn-box err">${iconSvg('octagon')}<span>${esc(hata)}</span></div>`;
   }
   if (me && !me.configured) {
     const eksikler = [];
@@ -226,7 +312,7 @@ function openGuildPicker() {
     const meta = [g.memberCount ? `${g.memberCount} üye` : '', g.channelCount ? `${g.channelCount} kanal` : ''].filter(Boolean).join(' · ');
     list.append(
       el('button', { class: 'channel-row', style: 'cursor:pointer', onclick: () => selectGuild(g) }, [
-        g.icon ? el('img', { src: g.icon, style: 'width:32px;height:32px;border-radius:10px' }) : el('div', { class: 'ico', text: '🏠' }),
+        g.icon ? el('img', { src: g.icon, style: 'width:32px;height:32px;border-radius:6px' }) : el('div', { class: 'ico' }, [iconEl('home')]),
         el('div', { class: 'nm', html: `${esc(g.name)}${meta ? `<small>${esc(meta)}</small>` : ''}` }),
         g.botIsAdmin
           ? el('span', { class: 'badge green', text: 'bot: yönetici' })
@@ -238,8 +324,8 @@ function openGuildPicker() {
   }
   openModal([
     el('div', { class: 'modal-head' }, [
-      el('div', {}, [el('h3', { text: `Sunucu Seç (${state.guilds.length})` }), el('div', { class: 'sub', text: 'Botun bulunduğu tüm sunucuları inceleyip yönetebilirsin' })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('div', {}, [el('h3', { text: `Sunucu seç (${state.guilds.length})` }), el('div', { class: 'sub', text: 'Botun bulunduğu tüm sunucuları inceleyip yönetebilirsin' })]),
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     list
   ]);
@@ -253,11 +339,11 @@ function showWelcome() {
   if (!me.botReady) {
     const err = me.botError || (me.setup && me.setup.botError) || 'Bot henüz Discord sunucusuna giriş yapamadı.';
     const intentsErr = /intent/i.test(err);
-    $('#pageTitle').textContent = 'Bot Bağlanamadı';
+    $('#pageTitle').textContent = 'Bot bağlanamadı';
     $('#pageSub').textContent = 'Discord bot ayarlarını tamamlaman gerekiyor';
     $('#sec-dashboard').innerHTML = `
       <div class="card" style="max-width:640px;padding:30px 24px">
-        <div style="font-size:40px;margin-bottom:10px">🔴</div>
+        <div class="empty-hero">${iconSvg('octagon')}</div>
         <h3 style="font-size:18px;margin-bottom:8px">Bot şu an çevrimdışı</h3>
         <div class="warn-box">${esc(err)}</div>
         ${intentsErr ? `
@@ -275,8 +361,8 @@ function showWelcome() {
           </p>
         `}
         <div class="row" style="max-width:360px">
-          <a class="btn btn-primary" href="/setup">🔧 Kurulum Teşhisi</a>
-          <button class="btn" onclick="location.reload()">↻ Tekrar Dene</button>
+          <a class="btn btn-primary" href="/setup">${iconSvg('wrench')}<span>Kurulum teşhisi</span></a>
+          <button class="btn" onclick="location.reload()">${iconSvg('refresh')}<span>Tekrar dene</span></button>
         </div>
       </div>`;
     return;
@@ -287,15 +373,15 @@ function showWelcome() {
   const inv = me.inviteUrl;
   $('#sec-dashboard').innerHTML = `
     <div class="card" style="text-align:center;padding:50px 20px">
-      <div style="font-size:46px;margin-bottom:14px">🤖</div>
-      <h3 style="justify-content:center;font-size:18px">Bot çevrimiçi, ama henüz sunucuna eklenmemiş</h3>
+      <div class="empty-hero">${iconSvg('bot')}</div>
+      <h3 style="justify-content:center;font-size:18px">Bot çevrimiçi ama henüz bir sunucuya eklenmemiş</h3>
       <p style="color:var(--muted);font-size:13.5px;line-height:1.8;margin:12px 0 22px">
         Aşağıdan botu sunucuna ekle (yönetici izniyle). Ekledikten sonra <b>Yenile</b>'ye bas.
       </p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        ${inv ? `<a class="btn btn-primary" href="${esc(inv)}" target="_blank" rel="noopener">➕ Botu Sunucuya Ekle</a>` : ''}
-        <button class="btn" onclick="copyInvite()">🔗 Linki Kopyala</button>
-        <button class="btn btn-ok" onclick="location.reload()">↻ Yenile</button>
+        ${inv ? `<a class="btn btn-primary" href="${esc(inv)}" target="_blank" rel="noopener">${iconSvg('plus')}<span>Botu sunucuya ekle</span></a>` : ''}
+        <button class="btn" onclick="copyInvite()">${iconSvg('link')}<span>Linki kopyala</span></button>
+        <button class="btn btn-ok" onclick="location.reload()">${iconSvg('refresh')}<span>Yenile</span></button>
       </div>
     </div>`;
 }
@@ -311,8 +397,8 @@ document.querySelectorAll('.nav-item[data-section]').forEach((btn) => {
 });
 
 const TITLES = {
-  dashboard: ['Genel Bakış', 'Sunucu durumu ve bot bilgileri'],
-  members: ['Üyeler & Moderasyon', 'Bir üyeye tıkla, işlemi seç'],
+  dashboard: ['Genel bakış', 'Sunucu durumu ve bot bilgileri'],
+  members: ['Üyeler', 'Bir üyeye tıkla, işlemi seç'],
   channels: ['Kanallar', 'Oluştur, düzenle, sil'],
   roles: ['Roller', 'Rol oluştur, ver, al'],
   games: ['Oyunlar', 'Yazı tura, zar ve ekonomi'],
@@ -382,9 +468,9 @@ async function loadDashboard() {
       ['ManageMessages', 'Mesaj Yönet']
     ];
     $('#myPerms').innerHTML =
-      `<div style="margin-bottom:6px"><span class="badge green">👑 Panel Kurucusu</span> <span class="hint" style="display:inline">Aşağıdakiler botun bu sunucudaki yetkileridir:</span></div>` +
+      `<div style="margin-bottom:6px"><span class="badge green">Panel kurucusu</span> <span class="hint" style="display:inline">Aşağıdakiler botun bu sunucudaki yetkileridir:</span></div>` +
       keyPerms
-        .map(([k, label]) => `<span class="role-chip">${hasBotAdmin || botPerms.includes(k) ? '✅' : '❌'} ${label}</span>`)
+        .map(([k, label]) => `<span class="role-chip">${hasBotAdmin || botPerms.includes(k) ? `<span class="ok">${iconSvg('check', 'icon icon-sm')}</span>` : `<span class="no">${iconSvg('x', 'icon icon-sm')}</span>`}${label}</span>`)
         .join('');
 
     renderLogs($('#recentLogs'), d.recentLogs);
@@ -486,7 +572,7 @@ async function openMemberBulk(kind) {
   ]) : null;
   const labels = { ban: 'Toplu yasaklama', kick: 'Toplu sunucudan atma', mute: 'Toplu susturma', unmute: 'Toplu susturma kaldırma', warn: 'Toplu uyarı', roles: 'Toplu rol yönetimi' };
   const body = [
-    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: labels[kind] }), el('div', { class: 'sub', text: `${ids.length} üye seçildi` })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: labels[kind] }), el('div', { class: 'sub', text: `${ids.length} üye seçildi` })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]),
     el('div', { class: 'bulk-summary' }, [el('div', {}, [el('b', { text: String(ids.length) }), el('span', { text: 'Seçili üye' })]), el('div', {}, [el('b', { text: kind === 'ban' ? 'Kalıcı' : 'Toplu' }), el('span', { text: 'İşlem tipi' })]), el('div', {}, [el('b', { text: '50' }), el('span', { text: 'İşlem sınırı' })])])
   ];
   if (action) body.push(el('label', { class: 'f', text: 'İşlem' }), action, el('div', { style: 'height:10px' }), el('label', { class: 'f', text: 'Rol' }), role);
@@ -519,24 +605,24 @@ function renderMemberModal(m) {
       el('h3', { text: m.displayName }),
       el('div', { class: 'sub', text: `@${m.username} · ${m.id}` })
     ]),
-    el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+    el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
   ]);
 
   const info = el('div', { class: 'hint', style: 'margin-bottom:14px' });
   info.innerHTML = `
     Katılım: <b>${new Date(m.joinedAt).toLocaleDateString('tr-TR')}</b> ·
     Hesap: <b>${new Date(m.createdAt).toLocaleDateString('tr-TR')}</b>
-    ${m.muted ? `<br /><span style="color:var(--yellow)">🔇 Susturulmuş${m.mutedUntil ? ' — bitiş: ' + new Date(m.mutedUntil).toLocaleString('tr-TR') : ' (kalıcı)'}</span>` : ''}
-    ${m.warnings.length ? `<br /><span style="color:var(--red)">⚠️ ${m.warnings.length} uyarı</span>` : ''}`;
+    ${m.muted ? `<br /><span style="color:var(--yellow)">${iconSvg('micOff', 'icon icon-sm')} Susturulmuş${m.mutedUntil ? ' — bitiş: ' + new Date(m.mutedUntil).toLocaleString('tr-TR') : ' (kalıcı)'}</span>` : ''}
+    ${m.warnings.length ? `<br /><span style="color:var(--red)">${iconSvg('alert', 'icon icon-sm')} ${m.warnings.length} uyarı</span>` : ''}`;
 
   // --- İşlem seçimi (admin butonları)
   const actions = [
-    ['ban', '🔨', 'Yasakla'],
-    ['kick', '👢', 'At'],
-    ['mute', '🔇', 'Sustur'],
-    ['unmute', '🔊', 'Susturmayı Kaldır'],
-    ['warn', '⚠️', 'Uyar'],
-    ['roles', '🎭', 'Rol Ver / Al']
+    ['ban', 'ban', 'Yasakla'],
+    ['kick', 'userX', 'Sunucudan at'],
+    ['mute', 'micOff', 'Sustur'],
+    ['unmute', 'mic', 'Susturmayı kaldır'],
+    ['warn', 'alert', 'Uyar'],
+    ['roles', 'tag', 'Rol ver / al']
   ];
   const actionGrid = el('div', { class: 'action-grid' });
   const detailBox = el('div', { id: 'actionDetail' });
@@ -544,7 +630,7 @@ function renderMemberModal(m) {
   for (const [key, icon, label] of actions) {
     actionGrid.append(
       el('button', { class: 'action-btn', 'data-action': key, onclick: () => selectAction(key) }, [
-        el('span', { text: icon }),
+        iconEl(icon),
         el('span', { text: label })
       ])
     );
@@ -558,7 +644,7 @@ function renderMemberModal(m) {
       el('span', { class: 'role-chip' }, [
         el('span', { class: 'role-dot', style: `background:${r.color === '#000000' ? '#99aab5' : r.color}` }),
         el('span', { text: r.name }),
-        el('button', { class: 'x', text: '✕', title: 'Rolü al', onclick: () => removeRole(m.id, r.id, r.name) })
+        el('button', { class: 'x', title: 'Rolü al', onclick: () => removeRole(m.id, r.id, r.name) }, [iconEl('x', 'icon icon-sm')])
       ])
     );
   }
@@ -572,7 +658,7 @@ function renderMemberModal(m) {
   const warnList = el('div', { style: 'margin-top:14px' });
   if (m.warnings.length) {
     warnList.innerHTML = `<label class="f">Uyarı geçmişi</label>` +
-      m.warnings.map((w) => `<div class="log-row"><span class="ic">⚠️</span><span class="txt">${esc(w.reason)} <span class="mono">— ${esc(w.by)}</span></span><span class="time">${timeAgo(w.at)}</span></div>`).join('');
+      m.warnings.map((w) => `<div class="log-row"><span class="ic">${iconSvg('alert', 'icon icon-sm')}</span><span class="txt">${esc(w.reason)} <span class="mono">— ${esc(w.by)}</span></span><span class="time">${timeAgo(w.at)}</span></div>`).join('');
   }
 
   openModal([
@@ -620,7 +706,7 @@ function renderMemberModal(m) {
       box.append(el('label', { class: 'f', text: 'Süre' }), chipsBox);
       box.append(el('label', { class: 'f', text: 'Sebep' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. spam' }));
       box.append(el('div', { style: 'margin-top:12px' }, [
-        el('button', { class: 'btn btn-warn btn-block', text: '🔇 Sustur', onclick: () => doMod('mute', m.id, { durationMs: chosen }) })
+        el('button', { class: 'btn btn-warn btn-block', onclick: () => doMod('mute', m.id, { durationMs: chosen }) }, withIcon('micOff', 'Sustur'))
       ]));
     } else if (key === 'ban') {
       box.append(el('label', { class: 'f', text: 'Sebep' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. kural ihlali' }));
@@ -632,23 +718,23 @@ function renderMemberModal(m) {
         el('option', { value: '604800', text: 'Son 7 gün' })
       ]));
       box.append(el('div', { style: 'margin-top:12px' }, [
-        el('button', { class: 'btn btn-danger btn-block', text: '🔨 Yasakla', onclick: () => doMod('ban', m.id) })
+        el('button', { class: 'btn btn-danger btn-block', onclick: () => doMod('ban', m.id) }, withIcon('ban', 'Yasakla'))
       ]));
     } else if (key === 'kick') {
       box.append(el('label', { class: 'f', text: 'Sebep' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. uygunsuz davranış' }));
       box.append(el('div', { style: 'margin-top:12px' }, [
-        el('button', { class: 'btn btn-danger btn-block', text: '👢 Sunucudan At', onclick: () => doMod('kick', m.id) })
+        el('button', { class: 'btn btn-danger btn-block', onclick: () => doMod('kick', m.id) }, withIcon('userX', 'Sunucudan at'))
       ]));
     } else if (key === 'warn') {
       box.append(el('label', { class: 'f', text: 'Uyarı sebebi' }), el('input', { class: 'input', id: 'actReason', placeholder: 'örn. küfür' }));
       box.append(el('div', { class: 'hint', text: '3 uyarıya ulaşan üye otomatik 30 dk susturulur.' }));
       box.append(el('div', { style: 'margin-top:12px' }, [
-        el('button', { class: 'btn btn-warn btn-block', text: '⚠️ Uyarı Ver', onclick: () => doMod('warn', m.id) })
+        el('button', { class: 'btn btn-warn btn-block', onclick: () => doMod('warn', m.id) }, withIcon('alert', 'Uyarı ver'))
       ]));
     } else if (key === 'unmute') {
       box.append(el('div', { class: 'hint', text: 'Timeout veya susturma rolü kaldırılır.' }));
       box.append(el('div', { style: 'margin-top:12px' }, [
-        el('button', { class: 'btn btn-ok btn-block', text: '🔊 Susturmayı Kaldır', onclick: () => doMod('unmute', m.id) })
+        el('button', { class: 'btn btn-ok btn-block', onclick: () => doMod('unmute', m.id) }, withIcon('mic', 'Susturmayı kaldır'))
       ]));
     }
 
@@ -701,8 +787,13 @@ async function removeRole(userId, roleId, name) {
 }
 
 /* ============================ KANALLAR ============================ */
-const CHANNEL_ICONS = { text: '#️⃣', voice: '🔊', category: '📂', announcement: '📢', stage: '🎙️', forum: '💬' };
-const MAX_PARALLEL_CHANNEL_SENDS = 20;
+const CHANNEL_ICONS = { text: 'hash', voice: 'speaker', category: 'folder', announcement: 'megaphone', stage: 'mic', forum: 'message' };
+/* Gönderim kuyruğu: tek tek, tur tur. Discord sınırı 5 mesaj / 5 sn (kanal başına) ve 50 istek / sn (genel). */
+const SEND_PACING_MS = 420;
+const SEND_SAME_CHANNEL_PACING_MS = 1100;
+const SEND_PACING_JITTER_MS = 180;
+const SEND_RATE_LIMIT_WAIT_MS = 6000;
+const SEND_MAX_RATE_LIMIT_RETRY = 3;
 
 async function loadChannels() {
   try {
@@ -788,11 +879,11 @@ function renderChannels() {
   const makeRow = (ch) =>
     el('div', { class: 'channel-row' }, [
       makeCheck(ch.id),
-      el('span', { class: 'ico', text: CHANNEL_ICONS[ch.type] || '❔' }),
+      el('span', { class: 'ico' }, [iconEl(CHANNEL_ICONS[ch.type] || 'hash')]),
       el('div', { class: 'nm', html: `${esc(ch.name)}${ch.locked ? ' <span class="tag warnc">KİLİTLİ</span>' : ''}<small>${ch.type}${ch.topic ? ' · ' + esc(ch.topic.slice(0, 60)) : ''}</small>` }),
       el('div', { class: 'acts' }, [
-        el('button', { class: 'btn btn-sm', text: '✏️ Düzenle', onclick: () => editChannel(ch) }),
-        el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Sil', onclick: () => deleteChannel(ch) })
+        el('button', { class: 'btn btn-sm', onclick: () => editChannel(ch) }, withIcon('edit', 'Düzenle')),
+        el('button', { class: 'btn btn-sm btn-danger', title: 'Sil', onclick: () => deleteChannel(ch) }, [iconEl('trash', 'icon icon-sm')])
       ])
     ]);
 
@@ -811,12 +902,12 @@ function renderChannels() {
       el('div', { class: 'cat-head' }, [
         el('div', { class: 'cat-left' }, [
           makeCheck(cat.id),
-          el('span', { text: `📂 ${cat.name} (${others.filter((c) => c.parentId === cat.id).length})` }),
+          el('span', { class: 'cat-name' }, [iconEl('folder', 'icon icon-sm'), el('span', { text: `${cat.name} (${others.filter((c) => c.parentId === cat.id).length})` })]),
           el('button', { class: 'chip', style: 'padding:2px 8px;font-size:11px', text: groupAllSelected ? 'Grubu bırak' : 'Grubu seç', onclick: () => toggleCategoryGroup(cat.id) })
         ]),
         el('div', { class: 'acts', style: 'display:flex;gap:6px' }, [
-          el('button', { class: 'btn btn-sm', text: '✏️ Düzenle', onclick: () => editChannel(cat) }),
-          el('button', { class: 'btn btn-sm btn-danger', text: '🗑', title: 'Kategoriyi sil', onclick: () => deleteChannel(cat) })
+          el('button', { class: 'btn btn-sm', onclick: () => editChannel(cat) }, withIcon('edit', 'Düzenle')),
+          el('button', { class: 'btn btn-sm btn-danger', title: 'Kategoriyi sil', onclick: () => deleteChannel(cat) }, [iconEl('trash', 'icon icon-sm')])
         ])
       ])
     );
@@ -861,7 +952,7 @@ function openBulkRename() {
   const hintEl = el('div', { class: 'hint', text: 'Örn: "yakında-" yazarsan genel-sohbet → yakında-genel-sohbet olur.' });
   const previewBox = el('div', { class: 'preview-box', style: 'margin-top:12px' });
   const progressBox = el('div', { class: 'hint', style: 'margin-top:8px;font-weight:600' });
-  const applyBtn = el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: `✏️ ${selectedList.length} Öğeye Uygula` });
+  const applyBtn = el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px' }, withIcon('edit', `${selectedList.length} öğeye uygula`));
 
   function updatePreview() {
     const v1 = input1.value;
@@ -929,7 +1020,7 @@ function openBulkRename() {
     try {
       for (let i = 0; i < items.length; i += 20) {
         const chunk = items.slice(i, i + 20);
-        progressBox.textContent = `⏳ İşleniyor: ${Math.min(i + chunk.length, items.length)} / ${items.length}…`;
+        progressBox.textContent = `İşleniyor: ${Math.min(i + chunk.length, items.length)} / ${items.length}…`;
         const res = await api('/api/channels/bulk/rename', { method: 'POST', body: { items: chunk } });
         if (!res.ok) { toast(res.error, 'err'); break; }
         updated += res.updated || 0;
@@ -948,8 +1039,8 @@ function openBulkRename() {
   setMode('prefix');
   openModal([
     el('div', { class: 'modal-head' }, [
-      el('div', {}, [el('h3', { text: 'Toplu İsim Değiştir' }), el('div', { class: 'sub', text: `${selectedList.length} kanal / kategori seçili` })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('div', {}, [el('h3', { text: 'Toplu isim değiştir' }), el('div', { class: 'sub', text: `${selectedList.length} kanal / kategori seçili` })]),
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     chipsWrap,
     input1Label,
@@ -978,12 +1069,12 @@ function openBulkDelete() {
   const hasCat = selectedList.some((c) => c.type === 'category');
   const childCb = el('input', { type: 'checkbox', class: 'ch-check', id: 'bulkDelChildren' });
   const progressBox = el('div', { class: 'hint', style: 'margin-top:8px;font-weight:600' });
-  const delBtn = el('button', { class: 'btn btn-danger', text: `🗑 Evet, ${selectedList.length} Öğeyi Sil` });
+  const delBtn = el('button', { class: 'btn btn-danger' }, withIcon('trash', `Evet, ${selectedList.length} öğeyi sil`));
 
   const body = [
     el('div', { class: 'modal-head' }, [
-      el('div', {}, [el('h3', { text: `${selectedList.length} Öğeyi Sil?` }), el('div', { class: 'sub', text: 'Bu işlem geri alınamaz' })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('div', {}, [el('h3', { text: `${selectedList.length} öğeyi sil?` }), el('div', { class: 'sub', text: 'Bu işlem geri alınamaz' })]),
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     el('p', { style: 'font-size:13.5px;color:var(--muted);line-height:1.7;margin-bottom:10px', html: `Seçilen <b>${selectedList.length}</b> kanal/kategori ve mesaj geçmişi kalıcı olarak silinecek.` }),
     el('div', { class: 'preview-box', style: 'margin-bottom:12px' },
@@ -1011,7 +1102,7 @@ function openBulkDelete() {
     try {
       for (let i = 0; i < ids.length; i += 20) {
         const chunk = ids.slice(i, i + 20);
-        progressBox.textContent = `⏳ Siliniyor: ${Math.min(i + chunk.length, ids.length)} / ${ids.length}…`;
+        progressBox.textContent = `Siliniyor: ${Math.min(i + chunk.length, ids.length)} / ${ids.length}…`;
         const res = await api('/api/channels/bulk/delete', { method: 'POST', body: { channelIds: chunk, deleteChildren } });
         if (!res.ok) { toast(res.error, 'err'); break; }
         deleted += res.deleted || 0;
@@ -1038,9 +1129,9 @@ function openBulkDelete() {
 function editChannel(ch) {
   const body = [
     el('div', { class: 'modal-head' }, [
-      el('div', { class: 'ico', style: 'font-size:26px', text: CHANNEL_ICONS[ch.type] || '❔' }),
+      el('div', { class: 'ico' }, [iconEl(CHANNEL_ICONS[ch.type] || 'hash', 'icon icon-lg')]),
       el('div', {}, [el('h3', { text: 'Kanalı Düzenle' }), el('div', { class: 'sub', text: ch.type })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     el('label', { class: 'f', text: 'Kanal adı' }),
     el('input', { class: 'input', id: 'chName', value: ch.name, maxlength: '100' }),
@@ -1069,7 +1160,7 @@ function editChannel(ch) {
         el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowEveryone', checked: true }), el('span', { text: '@everyone etiketini etkinleştir' })]),
         el('label', { class: 'mention-option danger' }, [el('input', { type: 'checkbox', id: 'channelAllowHere', checked: true }), el('span', { text: '@here etiketini etkinleştir' })])
       ]),
-      el('div', { class: 'hint', id: 'channelMessageProgress', style: 'min-height:18px;margin:6px 0' }),
+      el('div', { class: 'hint send-progress', id: 'channelMessageProgress', style: 'min-height:18px;margin:6px 0' }),
       el('div', { class: 'row' }, [
         el('button', { class: 'btn btn-primary', id: 'channelMessageSend', text: 'Mesajı gönder', onclick: () => sendChannelMessage(ch) }),
         el('button', { class: 'btn btn-danger', id: 'channelMessageStop', text: 'Gönderimi durdur', style: 'display:none' }),
@@ -1078,12 +1169,65 @@ function editChannel(ch) {
     ]));
   }
   body.push(el('div', { class: 'row', style: 'margin-top:14px' }, [
-    el('button', { class: 'btn btn-primary', text: '💾 Kaydet', onclick: () => saveChannel(ch) }),
-    el('button', { class: 'btn btn-danger', text: '🗑 Kanalı Sil', onclick: () => { closeModal(); deleteChannel(ch); } })
+    el('button', { class: 'btn btn-primary', onclick: () => saveChannel(ch) }, withIcon('save', 'Kaydet')),
+    el('button', { class: 'btn btn-danger', onclick: () => { closeModal(); deleteChannel(ch); } }, withIcon('trash', 'Kanalı sil'))
   ]));
   openModal(body);
 }
 
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds} sn`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes} dk ${seconds} sn` : `${minutes} dk`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes ? `${hours} sa ${restMinutes} dk` : `${hours} sa`;
+}
+
+/** Bekleme sırasında durdurma isteği gelirse hemen çözülür. */
+function waitWhileActive(ms, isStopped) {
+  return new Promise((resolve) => {
+    let left = Math.max(0, ms);
+    const tick = () => {
+      if (isStopped() || left <= 0) return resolve();
+      const slice = Math.min(120, left);
+      left -= slice;
+      setTimeout(tick, slice);
+    };
+    tick();
+  });
+}
+
+function pacingDelay(previousChannelId, channelId) {
+  const base = previousChannelId === channelId ? SEND_SAME_CHANNEL_PACING_MS : SEND_PACING_MS;
+  return base + Math.floor(Math.random() * SEND_PACING_JITTER_MS);
+}
+
+function rateLimitWaitMs(err) {
+  const detail = err?.detail || {};
+  const seconds = Number(detail.retryAfterSeconds);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.min(Math.ceil(seconds * 1000), 60000);
+  if (Number(detail.upstreamStatus) === 429) return SEND_RATE_LIMIT_WAIT_MS;
+  return /rate.?limit|too many requests|hız sınır/i.test(String(err?.message || '')) ? SEND_RATE_LIMIT_WAIT_MS : 0;
+}
+
+function formatSendProgress(state) {
+  const parts = [];
+  if (state.rounds > 1) parts.push(`Tur ${state.round}/${state.rounds}`);
+  if (state.channel) parts.push(`#${state.channel.name}`);
+  parts.push(`${state.sent}/${state.total} mesaj`);
+  if (state.waitingMs) return `${parts.join(' · ')} · hız sınırı bekleniyor (${formatDuration(state.waitingMs)})`;
+  if (state.remainingMs >= 1000) parts.push(`kalan ~${formatDuration(state.remainingMs)}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Seçili kanallara mesajı sırayla gönderir: her turda kanallara birer mesaj,
+ * tur bitince bir sonraki tur. Aynı anda tek istek açık olur; istekler arasında
+ * Discord hız sınırlarına uygun kısa bir bekleme yapılır.
+ */
 async function sendMessageBatch(channels, content, repeatCount, options, onProgress) {
   if (stopActiveMessageBatch) throw new Error('Önceki gönderimin durması bekleniyor.');
   const total = channels.length * repeatCount;
@@ -1098,18 +1242,37 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
   stopActiveMessageBatch = stop;
 
   const failedChannels = new Set();
+  const startedAt = Date.now();
+  let previousChannelId = null;
+  let waitingMs = 0;
+
+  const report = (channel, round) => {
+    if (!onProgress) return;
+    const done = sent + failures.length;
+    const elapsed = Date.now() - startedAt;
+    onProgress({
+      sent,
+      attempted,
+      total,
+      failures,
+      channel,
+      round,
+      rounds: repeatCount,
+      waitingMs,
+      remainingMs: done >= 3 && done < total ? Math.round((elapsed / done) * (total - done)) : 0
+    });
+  };
+
   try {
-    for (let repeat = 0; repeat < repeatCount; repeat += 1) {
+    for (let round = 1; round <= repeatCount; round += 1) {
       if (stopRequested) break;
-      const targets = channels.filter((channel) => !failedChannels.has(channel.id));
-      let nextTarget = 0;
-      const workerCount = Math.min(MAX_PARALLEL_CHANNEL_SENDS, targets.length);
-      const worker = async () => {
-        while (!stopRequested) {
-          const index = nextTarget++;
-          if (index >= targets.length) return;
-          const channel = targets[index];
-          attempted += 1;
+      for (const channel of channels) {
+        if (stopRequested) break;
+        if (failedChannels.has(channel.id)) continue;
+        attempted += 1;
+        let delivered = false;
+
+        for (let tries = 0; tries <= SEND_MAX_RATE_LIMIT_RETRY; tries += 1) {
           try {
             const result = await api('/api/channels/message', {
               method: 'POST',
@@ -1123,33 +1286,49 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
               }
             });
             if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
+            delivered = true;
             sent += 1;
+            break;
           } catch (err) {
-            failures.push({ channel: channel.name, error: err.message || 'Mesaj gönderilemedi.' });
+            const message = err.message || 'Mesaj gönderilemedi.';
+            const wait = rateLimitWaitMs(err);
+            if (wait && tries < SEND_MAX_RATE_LIMIT_RETRY && !stopRequested) {
+              waitingMs = wait;
+              report(channel, round);
+              await waitWhileActive(wait, () => stopRequested);
+              waitingMs = 0;
+              continue;
+            }
+            failures.push({ channel: channel.name, error: message });
             failedChannels.add(channel.id);
+            break;
           }
-          onProgress?.({ sent, attempted, total, channel, failures });
         }
-      };
-      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+        report(channel, round);
+        const delay = pacingDelay(previousChannelId, channel.id);
+        previousChannelId = channel.id;
+        if (!stopRequested) await waitWhileActive(delay, () => stopRequested);
+      }
     }
   } finally {
     if (stopActiveMessageBatch === stop) stopActiveMessageBatch = null;
   }
 
-  return { sent, attempted, total, failures, stopped: stopRequested };
+  return { sent, attempted, total, failures, stopped: stopRequested, elapsedMs: Date.now() - startedAt };
 }
 
 function reportMessageBatchResult(result) {
+  const duration = Number(result.elapsedMs) > 0 ? ` · ${formatDuration(result.elapsedMs)}` : '';
   if (result.stopped) {
-    return toast(`Gönderim durduruldu: ${result.sent}/${result.total} mesaj gönderildi.`, 'warn');
+    return toast(`Gönderim durduruldu: ${result.sent}/${result.total} mesaj gönderildi${duration}.`, 'warn');
   }
   if (result.failures.length) {
     const first = result.failures[0];
     const more = result.failures.length > 1 ? ` Ayrıca ${result.failures.length - 1} hedefte hata var.` : '';
-    return toast(`${result.sent}/${result.total} mesaj gönderildi. #${first.channel}: ${first.error}${more}`, 'warn');
+    return toast(`${result.sent}/${result.total} mesaj gönderildi${duration}. #${first.channel}: ${first.error}${more}`, 'warn');
   }
-  toast(`${result.sent} mesaj gönderildi.`, 'ok');
+  toast(`${result.sent} mesaj gönderildi${duration}.`, 'ok');
 }
 
 async function sendChannelMessage(ch) {
@@ -1180,12 +1359,12 @@ async function sendChannelMessage(ch) {
       allowHere: Boolean($('#channelAllowHere')?.checked),
       anonymous: Boolean($('#channelAnonymous')?.checked)
     }, (state) => {
-      progress.textContent = `Gönderiliyor: ${state.sent}/${state.total} · #${state.channel.name}`;
+      progress.textContent = formatSendProgress(state);
     });
     if (result.sent === result.total) input.value = '';
     progress.textContent = result.stopped
       ? `Durduruldu: ${result.sent}/${result.total} gönderildi.`
-      : `${result.sent}/${result.total} gönderildi.`;
+      : `${result.sent}/${result.total} gönderildi · ${formatDuration(result.elapsedMs)}`;
     reportMessageBatchResult(result);
   } catch (err) {
     toast(err.message, 'err');
@@ -1206,7 +1385,7 @@ function openBulkChannelMessage() {
   const mentionInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowMentions', checked: true });
   const everyoneInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowEveryone', checked: true });
   const hereInput = el('input', { type: 'checkbox', id: 'bulkChannelAllowHere', checked: true });
-  const progress = el('div', { class: 'hint', style: 'min-height:18px;margin:6px 0' });
+  const progress = el('div', { class: 'hint send-progress', style: 'min-height:18px;margin:6px 0' });
   const stopButton = el('button', { class: 'btn btn-danger', text: 'Gönderimi durdur', style: 'display:none' });
   const sendButton = el('button', { class: 'btn btn-primary', text: `Toplu gönder (${channels.length} kanal)` });
 
@@ -1235,12 +1414,12 @@ function openBulkChannelMessage() {
         allowHere: hereInput.checked,
         anonymous: anonymousInput.checked
       }, (state) => {
-        progress.textContent = `Gönderiliyor: ${state.sent}/${state.total} · #${state.channel.name}`;
+        progress.textContent = formatSendProgress(state);
       });
       if (result.sent === result.total) messageInput.value = '';
       progress.textContent = result.stopped
         ? `Durduruldu: ${result.sent}/${result.total} gönderildi.`
-        : `${result.sent}/${result.total} gönderildi.`;
+        : `${result.sent}/${result.total} gönderildi · ${formatDuration(result.elapsedMs)}`;
       reportMessageBatchResult(result);
     } catch (err) {
       toast(err.message, 'err');
@@ -1254,13 +1433,13 @@ function openBulkChannelMessage() {
   openModal([
     el('div', { class: 'modal-head' }, [
       el('div', {}, [el('h3', { text: 'Toplu mesaj gönder' }), el('div', { class: 'sub', text: `${channels.length} metin/duyuru kanalı seçili` })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     el('label', { class: 'f', text: 'Mesaj' }),
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Her turda en fazla ${MAX_PARALLEL_CHANNEL_SENDS} kanala paralel gönderilir; kalanlar sıraya alınır. Etiket ayarları her tekrara uygulanır, Discord hız sınırları korunur.` }),
+    el('div', { class: 'hint', text: `Gönderim sırayla ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. İstekler arasında kısa bekleme yapılır; Discord hız sınırına takılırsa kuyruk bekler ve aynı kanaldan devam eder.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
@@ -1316,7 +1495,7 @@ function deleteChannel(ch) {
     el('p', { style: 'font-size:13.5px;color:var(--muted);line-height:1.8;margin-bottom:18px', html: `<b>#${esc(ch.name)}</b> kanalı ve içindeki tüm mesajlar kalıcı olarak silinecek.` }),
     el('div', { class: 'row' }, [
       el('button', { class: 'btn', text: 'Vazgeç', onclick: closeModal }),
-      el('button', { class: 'btn btn-danger', text: '🗑 Evet, sil', onclick: async () => {
+      el('button', { class: 'btn btn-danger', text: 'Evet, sil', onclick: async () => {
         try {
           const r = await api('/api/channels/delete', { method: 'POST', body: { channelId: ch.id } });
           if (r.ok) { toast(r.message, 'ok'); closeModal(); loadChannels(); }
@@ -1330,18 +1509,18 @@ function deleteChannel(ch) {
 function openChannelCreate() {
   openModal([
     el('div', { class: 'modal-head' }, [
-      el('div', {}, [el('h3', { text: 'Kanal Oluştur' }), el('div', { class: 'sub', text: 'Metin, ses veya kategori' })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('div', {}, [el('h3', { text: 'Kanal oluştur' }), el('div', { class: 'sub', text: 'Metin, ses veya kategori' })]),
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     el('label', { class: 'f', text: 'Kanal adı' }),
     el('input', { class: 'input', id: 'newChName', placeholder: 'genel-sohbet' }),
     el('div', { style: 'height:12px' }),
     el('label', { class: 'f', text: 'Tür' }),
     el('select', { class: 'input', id: 'newChType' }, [
-      el('option', { value: 'text', text: '📝 Metin kanalı' }),
-      el('option', { value: 'voice', text: '🔊 Ses kanalı' }),
-      el('option', { value: 'category', text: '📂 Kategori' }),
-      el('option', { value: 'announcement', text: '📢 Duyuru kanalı' })
+      el('option', { value: 'text', text: 'Metin kanalı' }),
+      el('option', { value: 'voice', text: 'Ses kanalı' }),
+      el('option', { value: 'category', text: 'Kategori' }),
+      el('option', { value: 'announcement', text: 'Duyuru kanalı' })
     ]),
     el('div', { style: 'height:12px' }),
     el('label', { class: 'f', text: 'Kategori (opsiyonel)' }),
@@ -1350,7 +1529,7 @@ function openChannelCreate() {
       ...state.channels.filter((c) => c.type === 'category').map((c) => el('option', { value: c.id, text: c.name }))
     ]),
     el('div', { style: 'margin-top:16px' }, [
-      el('button', { class: 'btn btn-primary btn-block', text: '➕ Oluştur', onclick: async () => {
+      el('button', { class: 'btn btn-primary btn-block', text: 'Oluştur', onclick: async () => {
         const name = $('#newChName').value.trim();
         const type = $('#newChType').value;
         const categoryId = $('#newChParent').value || null;
@@ -1444,7 +1623,7 @@ function openBulkChannelCreate() {
   openModal([
     el('div', { class: 'modal-head' }, [
       el('div', {}, [el('h3', { text: 'Toplu kanal oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir kanal adı; aynı ad birden fazla kez kullanılabilir. Discord sunucu sınırları geçerlidir.' })]),
-      el('button', { class: 'modal-close', text: '✕', onclick: closeModal })
+      el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])
     ]),
     el('label', { class: 'f', text: 'Kanal adları' }),
     namesInput,
@@ -1465,7 +1644,7 @@ async function loadBans() {
     const box = $('#banList');
     box.innerHTML = '';
     if (!d.bans.length) {
-      box.innerHTML = '<div class="empty">Yasaklı üye yok. 🎉</div>';
+      box.innerHTML = '<div class="empty">Yasaklı üye yok.</div>';
       return;
     }
     for (const b of d.bans) {
@@ -1502,7 +1681,7 @@ async function quickUnban() {
 
 function openBulkUnban() {
   openModal([
-    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu yasak kaldırma' }), el('div', { class: 'sub', text: 'Her satıra bir Discord kullanıcı ID’si' })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu yasak kaldırma' }), el('div', { class: 'sub', text: 'Her satıra bir Discord kullanıcı ID’si' })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]),
     el('textarea', { class: 'input', id: 'bulkUnbanIds', rows: '7', placeholder: '123456789012345678\n987654321098765432' }),
     el('input', { class: 'input', id: 'bulkUnbanReason', style: 'margin-top:10px', placeholder: 'Sebep (opsiyonel)' }),
     el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Yasakları kaldır', onclick: async () => {
@@ -1560,14 +1739,14 @@ async function bulkDeleteRoles() {
 }
 function openBulkRoleCreate() {
   openModal([
-    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu rol oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir rol adı' })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]),
+    el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu rol oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir rol adı' })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]),
     el('textarea', { class: 'input', id: 'bulkRoleNames', rows: '8', placeholder: 'Yönetici\nModeratör\nVIP\nÜye' }),
     el('label', { class: 'f', style: 'margin-top:12px', text: 'Rol rengi' }), el('input', { type: 'color', class: 'input', id: 'bulkRoleColor', value: '#5865f2', style: 'height:44px' }),
     el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Rolleri oluştur', onclick: async () => { const names = $('#bulkRoleNames').value.split(/\n|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50); if (!names.length) return toast('Rol adı gir', 'warn'); const color = $('#bulkRoleColor').value; try { const r = await api('/api/roles/bulk', { method: 'POST', body: { action: 'create', items: names.map((name) => ({ name, color })) } }); toast(`${r.succeeded} rol oluşturuldu`, r.failed ? 'warn' : 'ok'); closeModal(); loadRoles(); } catch (e) { toast(e.message, 'err'); } } })
   ]);
 }
 function editRole(role) {
-  openModal([el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Rolü düzenle' }), el('div', { class: 'sub', text: role.name })]), el('button', { class: 'modal-close', text: '✕', onclick: closeModal })]), el('label', { class: 'f', text: 'Rol adı' }), el('input', { class: 'input', id: 'editRoleName', value: role.name }), el('label', { class: 'f', style: 'margin-top:12px', text: 'Renk' }), el('input', { type: 'color', class: 'input', id: 'editRoleColor', value: role.color === '#000000' ? '#99aab5' : role.color, style: 'height:44px' }), el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Kaydet', onclick: async () => { try { const r = await api('/api/roles/edit', { method: 'POST', body: { roleId: role.id, name: $('#editRoleName').value, color: $('#editRoleColor').value } }); toast(r.message, 'ok'); closeModal(); loadRoles(); } catch (e) { toast(e.message, 'err'); } } })]);
+  openModal([el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Rolü düzenle' }), el('div', { class: 'sub', text: role.name })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]), el('label', { class: 'f', text: 'Rol adı' }), el('input', { class: 'input', id: 'editRoleName', value: role.name }), el('label', { class: 'f', style: 'margin-top:12px', text: 'Renk' }), el('input', { type: 'color', class: 'input', id: 'editRoleColor', value: role.color === '#000000' ? '#99aab5' : role.color, style: 'height:44px' }), el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Kaydet', onclick: async () => { try { const r = await api('/api/roles/edit', { method: 'POST', body: { roleId: role.id, name: $('#editRoleName').value, color: $('#editRoleColor').value } }); toast(r.message, 'ok'); closeModal(); loadRoles(); } catch (e) { toast(e.message, 'err'); } } })]);
 }
 
 async function createRole() {
@@ -1614,10 +1793,10 @@ async function loadGame() {
       d.leaderboard.forEach((u, i) => {
         board.append(
           el('div', { class: 'leader-row' }, [
-            el('span', { class: 'rank', text: ['🥇', '🥈', '🥉'][i] || `#${i + 1}` }),
+            el('span', { class: i < 3 ? 'rank top' : 'rank', text: String(i + 1) }),
             u.avatar ? el('img', { src: u.avatar }) : el('div', {}),
             el('span', { text: u.name }),
-            el('span', { class: 'coins', text: `${u.coins} 💰` })
+            el('span', { class: 'coins' }, [el('span', { text: String(u.coins) }), el('span', { text: 'coin' })])
           ])
         );
       });
@@ -1633,7 +1812,7 @@ async function playCoinflip(pick) {
   try {
     const res = await api('/api/play/coinflip', { method: 'POST', body: { bet, pick } });
     if (res.error) return toast(res.error, 'err');
-    $('#othMsg').innerHTML = `🪙 Sonuç: <b>${res.result}</b> — ${res.won ? `<span style="color:var(--green)">+${res.payout} coin</span>` : `<span style="color:var(--red)">-${res.bet} coin</span>`} · Bakiye: ${res.balance}`;
+    $('#othMsg').innerHTML = `Sonuç: <b>${res.result}</b> — ${res.won ? `<span style="color:var(--green)">+${res.payout} coin</span>` : `<span style="color:var(--red)">-${res.bet} coin</span>`} · Bakiye: ${res.balance}`;
     toast(res.won ? `Kazandın! +${res.payout} coin` : `Kaybettin -${res.bet} coin`, res.won ? 'ok' : 'err');
     loadGame();
   } catch (err) {
@@ -1648,7 +1827,7 @@ async function playDice() {
   try {
     const res = await api('/api/play/dice', { method: 'POST', body: { bet, guess } });
     if (res.error) return toast(res.error, 'err');
-    $('#othMsg').innerHTML = `🎲 Zar: <b>${res.result}</b> — ${res.won ? `<span style="color:var(--green)">+${res.payout} coin</span>` : `<span style="color:var(--red)">-${res.bet} coin</span>`} · Bakiye: ${res.balance}`;
+    $('#othMsg').innerHTML = `Zar: <b>${res.result}</b> — ${res.won ? `<span style="color:var(--green)">+${res.payout} coin</span>` : `<span style="color:var(--red)">-${res.bet} coin</span>`} · Bakiye: ${res.balance}`;
     loadGame();
   } catch (err) {
     toast(err.message, 'err');
@@ -1659,7 +1838,7 @@ async function claimDaily() {
   try {
     const res = await api('/api/play/daily', { method: 'POST' });
     if (res.ok) {
-      toast(`🎁 +${res.amount} coin aldın!`, 'ok');
+      toast(`+${res.amount} coin aldın.`, 'ok');
       loadGame();
     } else {
       const h = Math.floor(res.remaining / 3600000);
@@ -1724,7 +1903,7 @@ async function copyInvite() {
 }
 
 /* ============================ KAYITLAR ============================ */
-const LOG_ICONS = { ban: '🔨', unban: '🔓', kick: '👢', mute: '🔇', unmute: '🔊', warn: '⚠️', channel: '📁', role: '🎭', site: '🖥️', bot: '🤖' };
+const LOG_ICONS = { ban: 'ban', unban: 'unlock', kick: 'userX', mute: 'micOff', unmute: 'mic', warn: 'alert', channel: 'folder', role: 'tag', site: 'sliders', bot: 'bot' };
 
 function renderLogs(box, logs) {
   box.innerHTML = '';
@@ -1735,7 +1914,7 @@ function renderLogs(box, logs) {
   for (const l of logs) {
     box.append(
       el('div', { class: 'log-row' }, [
-        el('span', { class: 'ic', text: LOG_ICONS[l.type] || '•' }),
+        el('span', { class: 'ic' }, [iconEl(LOG_ICONS[l.type] || 'list', 'icon icon-sm')]),
         el('span', { class: 'txt', text: l.text }),
         el('span', { class: 'time', text: timeAgo(l.at) })
       ])
@@ -1753,4 +1932,21 @@ async function loadLogs() {
 }
 
 /* ============================ BAŞLAT ============================ */
+/** HTML'de data-icon / data-icon-label ile işaretlenen yerlere ikonları yerleştirir. */
+function hydrateIcons(root = document) {
+  root.querySelectorAll('[data-icon]').forEach((node) => {
+    const name = node.getAttribute('data-icon');
+    node.removeAttribute('data-icon');
+    node.innerHTML = iconSvg(name);
+  });
+  root.querySelectorAll('[data-icon-label]').forEach((node) => {
+    const [name, ...rest] = node.getAttribute('data-icon-label').split(':');
+    node.removeAttribute('data-icon-label');
+    node.innerHTML = `${iconSvg(name)}<span>${rest.join(':')}</span>`;
+  });
+}
+
+hydrateIcons();
+const passToggle = $('#togglePassBtn');
+if (passToggle && !passToggle.innerHTML.trim()) passToggle.innerHTML = iconSvg('eye');
 boot();
