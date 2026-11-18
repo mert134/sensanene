@@ -22,37 +22,50 @@ const anonymousWebhookCache = new Map();
 const anonymousWebhookInflight = new Map();
 const PORT = process.env.PORT || 10000;
 
-/* Discord'a giden istekler için sınırlı kapı.
+/* Discord'a giden istekler için sınırlı kapılar.
    Toplu gönderimde yüzlerce istek discord.js'in kendi kuyruğuna yığılıyordu;
    kuyruk şişince her istek onlarca saniye bekliyor, panel "donmuş" gibi
-   görünüyordu. Bu sayaç aynı anda en fazla N Discord işlemi yapılmasını
-   sağlar, fazlası burada ÖNGÖRÜLEBİLİR biçimde sırada bekler. */
-const DISCORD_SEND_CONCURRENCY = Number(process.env.DISCORD_SEND_CONCURRENCY || 6);
-let discordSendActive = 0;
-const discordSendQueue = [];
-
-function acquireDiscordSlot() {
-  if (discordSendActive < DISCORD_SEND_CONCURRENCY) {
-    discordSendActive += 1;
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => discordSendQueue.push(resolve));
+   görünüyordu. Kapılar aynı anda en fazla N Discord işlemi yapılmasını sağlar,
+   fazlası burada ÖNGÖRÜLEBİLİR biçimde sırada bekler.
+   İki ayrı kapı var: mesaj gönderimi ve webhook hazırlığı birbirini
+   yavaşlatmasın diye. Webhook sorgusu/oluşturması kanal başına ayrı hız
+   kovası kullandığından daha geniş bir kapıdan güvenle geçebilir. */
+function createDiscordGate(defaultLimit, envName) {
+  const limit = Number(process.env[envName] || defaultLimit);
+  let active = 0;
+  const queue = [];
+  const acquire = () => {
+    if (active < limit) {
+      active += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => queue.push(resolve));
+  };
+  const release = () => {
+    const next = queue.shift();
+    if (next) next();
+    else active -= 1;
+  };
+  return {
+    limit,
+    get active() { return active; },
+    get queued() { return queue.length; },
+    async run(fn) {
+      await acquire();
+      try {
+        return await fn();
+      } finally {
+        release();
+      }
+    }
+  };
 }
 
-function releaseDiscordSlot() {
-  const next = discordSendQueue.shift();
-  if (next) next();
-  else discordSendActive -= 1;
-}
+const sendGate = createDiscordGate(6, 'DISCORD_SEND_CONCURRENCY');
+const webhookGate = createDiscordGate(8, 'DISCORD_WEBHOOK_CONCURRENCY');
 
-async function withDiscordSlot(fn) {
-  await acquireDiscordSlot();
-  try {
-    return await fn();
-  } finally {
-    releaseDiscordSlot();
-  }
-}
+/** Geriye uyumluluk: gönderim kapısı. */
+const withDiscordSlot = (fn) => sendGate.run(fn);
 
 async function getAnonymousWebhook(channel) {
   const key = String(channel.id);
@@ -71,8 +84,8 @@ async function getAnonymousWebhook(channel) {
 }
 
 async function resolveAnonymousWebhook(channel, key) {
-  // Webhook sorgusu/oluşturması da birer Discord isteğidir; kapıdan geçer.
-  return withDiscordSlot(async () => {
+  // Webhook sorgusu/oluşturması kendi kapısından geçer; gönderimleri yavaşlatmaz.
+  return webhookGate.run(async () => {
     const hooks = await channel.fetchWebhooks();
     let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
     if (hook && hook.name !== 'Anonymous') {
@@ -720,6 +733,43 @@ app.post('/api/channels/topic', requireAuth, wrap(async (req, res) => {
   const { channelId, topic } = req.body || {};
   const result = await mod.setChannelTopic(guild, actor, channelId, topic);
   res.json(result);
+}));
+
+/**
+ * Toplu gönderim başlamadan önce Anonymous webhook'larını arka planda hazırlar.
+ * Webhook oluşturması yavaş olduğu için bunu gönderim yolundan çıkarıyoruz:
+ * panel listeyle bu ucu çağırır, sunucu webhook kapısından geçerek hepsini
+ * önbelleğe alır; gönderim başladığında çoğu kanal hazır olur.
+ */
+app.post('/api/channels/webhooks/warm', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const ids = [...new Set(Array.isArray(req.body?.channelIds) ? req.body.channelIds.map(String) : [])].slice(0, 500);
+  if (!ids.length) return res.json({ ok: true, started: 0 });
+
+  const channels = ids
+    .map((id) => guild.channels.cache.get(id))
+    .filter((channel) => channel && typeof channel.send === 'function' && ['text', 'announcement'].includes(mod.channelTypeName(channel.type)))
+    .filter((channel) => channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ManageWebhooks));
+
+  // Yanıtı bekletme: hazırlık arka planda, webhook kapısının hızında ilerler.
+  const warming = (async () => {
+    let ready = 0;
+    let failed = 0;
+    await Promise.all(channels.map(async (channel) => {
+      try {
+        await getAnonymousWebhook(channel);
+        ready += 1;
+      } catch (err) {
+        failed += 1;
+        console.error(`[webhook] #${channel.name} hazırlanamadı:`, err.message);
+      }
+    }));
+    settings.log(guild.id, 'site', `Anonymous webhook hazırlığı: ${ready} hazır, ${failed} hatalı`);
+    return { ready, failed };
+  })();
+  warming.catch(() => {});
+
+  res.json({ ok: true, started: channels.length, webhookGate: { limit: webhookGate.limit, active: webhookGate.active, queued: webhookGate.queued } });
 }));
 
 app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
