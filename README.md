@@ -16,7 +16,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 **Kanal & kategori yönetimi (tekli ve toplu)**
 - Kategoriye göre gruplanmış metin / ses / duyuru kanalları + arama
 - Tekli kanal veya kategori **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
-- Metin/duyuru kanalından bot hesabıyla veya **Anonymous** adlı nötr webhook üzerinden aynı mesajı belirlenen tekrar sayısı kadar gönderme; hızlı seçimden seçili metin/duyuru kanallarına aynı anda toplu mesaj; kullanıcı/rol ve `@everyone`/`@here` etiketleri her tekrarda uygulanır; gönderimler Discord hız sınırlarına tabidir ve durdurulabilir; kanal yazma iznini kilitleme/kaldırma
+- Metin/duyuru kanalından bot hesabıyla veya **Anonymous** adlı nötr webhook üzerinden aynı mesajı belirlenen tekrar sayısı kadar gönderme; hızlı seçimden seçili metin/duyuru kanallarına 20 kanallık kontrollü paralel toplu mesaj; kullanıcı/rol ve `@everyone`/`@here` etiketleri her tekrarda uygulanır; gönderimler Discord hız sınırlarına tabidir ve durdurulabilir; kanal yazma iznini kilitleme/kaldırma
 - **Toplu oluşturma:** satır başına bir ad girerek metin/ses/duyuru kanalları veya kategori oluştur; tekrar eden adlar kabul edilir (Discord sunucu limitleri geçerlidir)
 - **Toplu seçim:** hızlı seçim (tümü, tümü görünenler, tüm ses kanalları, tüm metin kanalları, tüm kategoriler, kategori grubu)
 - **Toplu düzenleme:** başına/sonuna ekle (`yakında-`), bul & değiştir, hepsini aynı ad yap (`yakında-{n}`), canlı önizleme ve seçili metin kanallarının konusunu birlikte güncelleme
