@@ -10,6 +10,15 @@
  *    olay akışında listelenir.
  *  - Yedek, sunucudaki rol/kanal listesinin gerçek bir anlık görüntüsüdür.
  *
+ * Kendi işlemlerini tehlike SAYMAZ:
+ *  - Panelin/botun toplu işlemleri (kanal/rol oluşturma-silme, toplu ban/kick,
+ *    Anonymous webhook ekleme) botun kendi tokeniyle yapılır; denetim kaydında
+ *    yürütücü bot (veya uygulama ID'si) göründüğü için bu kayıtlar atlanır.
+ *  - Botun kendi mesajları ve Anonymous webhook mesajları spam/reklam
+ *    izlemesine takılmaz (webhookId kontrolü).
+ *  - Kendi Discord hesabınla toplu işlem yapacaksan hesabını güvenli listeye
+ *    ekle: /guard güvenli ekle veya paneldeki Güvenli liste.
+ *
  * Neler gösterim (simulation):
  *  - Sınır aşımında OTOMATİK CEZA UYGULANMAZ. Yapılandırılmış ceza bir kural
  *    olarak gösterilir, ihlal kayda geçer. Yani guard burada "kayıt + uyarı"
@@ -708,6 +717,34 @@ function guardActive(guild) {
   return get(guild.id);
 }
 
+/**
+ * İşlemi yapan botun kendisi mi?
+ * Panelin toplu işlemleri (kanal/rol oluşturma-silme, toplu ban/kick, Anonymous
+ * webhook ekleme) botun kendi tokeniyle yapılır; denetim kaydında yürütücü olarak
+ * bot göründüğü için guard bunları TEHLİKE SAYMAZ. Bazı kayıtlarda yürütücü bot
+ * kullanıcısı değil uygulama (application) ID'si olur, o da kontrol edilir.
+ */
+function isSelfActor(guild, actorId) {
+  if (!actorId) return false;
+  const id = String(actorId);
+  const client = guild?.client;
+  const own = [client?.user?.id, client?.application?.id].filter(Boolean).map(String);
+  return own.includes(id);
+}
+
+/**
+ * Mesaj botun kendi gönderimi mi?
+ *  - Bot hesabıyla gönderilen mesajlar (author.bot)
+ *  - Anonymous webhook mesajları (webhookId dolu): panelin toplu anonim
+ *    gönderimleri bu yoldan gelir ve spam/reklam izlemesine TAKILMAZ.
+ */
+function isSelfMessage(message) {
+  if (!message) return true;
+  if (message.webhookId) return true;
+  if (message.author?.bot) return true;
+  return isSelfActor(message.guild, message.author?.id);
+}
+
 /** Denetim kaydı olayı: kim, ne yaptı, sınırı aştı mı? */
 async function onAuditEntry(entry, guild) {
   const cfg = guardActive(guild);
@@ -715,7 +752,7 @@ async function onAuditEntry(entry, guild) {
   const action = AUDIT_MAP.get(entry.actionType);
   if (!action) return;
   const executorId = entry.executorId || entry.executor?.id;
-  if (!executorId || executorId === guild.client?.user?.id) return;
+  if (!executorId || isSelfActor(guild, executorId)) return;
   if (isWhitelisted(cfg, executorId)) return;
 
   const meta = ACTION_BY_KEY[action];
@@ -786,7 +823,7 @@ function onMemberAdd(member) {
 
 /** Mesaj akışı: davet linki ve tekrar eden mesaj izlemesi. */
 function onMessage(message) {
-  if (!message.guild || message.author?.bot) return;
+  if (!message.guild || isSelfMessage(message)) return;
   const cfg = guardActive(message.guild);
   if (!cfg) return;
   if (isWhitelisted(cfg, message.author.id)) return;
@@ -1149,6 +1186,8 @@ module.exports = {
   recordViolation,
   recordInfo,
   start,
+  isSelfActor,
+  isSelfMessage,
   guardSlashCommands,
   handleGuardInteraction,
   AUDIT_MAP
