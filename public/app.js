@@ -702,6 +702,7 @@ async function removeRole(userId, roleId, name) {
 
 /* ============================ KANALLAR ============================ */
 const CHANNEL_ICONS = { text: '#️⃣', voice: '🔊', category: '📂', announcement: '📢', stage: '🎙️', forum: '💬' };
+const MAX_PARALLEL_CHANNEL_SENDS = 20;
 
 async function loadChannels() {
   try {
@@ -1101,28 +1102,36 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
     for (let repeat = 0; repeat < repeatCount; repeat += 1) {
       if (stopRequested) break;
       const targets = channels.filter((channel) => !failedChannels.has(channel.id));
-      await Promise.all(targets.map(async (channel) => {
-        attempted += 1;
-        try {
-          const result = await api('/api/channels/message', {
-            method: 'POST',
-            body: {
-              channelId: channel.id,
-              content,
-              allowMentions: options.allowMentions,
-              allowEveryone: options.allowEveryone,
-              allowHere: options.allowHere,
-              anonymous: options.anonymous
-            }
-          });
-          if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
-          sent += 1;
-        } catch (err) {
-          failures.push({ channel: channel.name, error: err.message || 'Mesaj gönderilemedi.' });
-          failedChannels.add(channel.id);
+      let nextTarget = 0;
+      const workerCount = Math.min(MAX_PARALLEL_CHANNEL_SENDS, targets.length);
+      const worker = async () => {
+        while (!stopRequested) {
+          const index = nextTarget++;
+          if (index >= targets.length) return;
+          const channel = targets[index];
+          attempted += 1;
+          try {
+            const result = await api('/api/channels/message', {
+              method: 'POST',
+              body: {
+                channelId: channel.id,
+                content,
+                allowMentions: options.allowMentions,
+                allowEveryone: options.allowEveryone,
+                allowHere: options.allowHere,
+                anonymous: options.anonymous
+              }
+            });
+            if (!result.ok) throw new Error(result.error || 'Mesaj gönderilemedi.');
+            sent += 1;
+          } catch (err) {
+            failures.push({ channel: channel.name, error: err.message || 'Mesaj gönderilemedi.' });
+            failedChannels.add(channel.id);
+          }
+          onProgress?.({ sent, attempted, total, channel, failures });
         }
-        onProgress?.({ sent, attempted, total, channel, failures });
-      }));
+      };
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
     }
   } finally {
     if (stopActiveMessageBatch === stop) stopActiveMessageBatch = null;
@@ -1251,7 +1260,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Her tekrar ${channels.length} seçili kanala aynı anda gönderilir. Etiket ayarları her tekrara uygulanır; Discord hız sınırları geçerlidir.` }),
+    el('div', { class: 'hint', text: `Her turda en fazla ${MAX_PARALLEL_CHANNEL_SENDS} kanala paralel gönderilir; kalanlar sıraya alınır. Etiket ayarları her tekrara uygulanır, Discord hız sınırları korunur.` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
