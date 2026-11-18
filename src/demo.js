@@ -249,6 +249,13 @@ function router() {
     res.json({ ok: true, message: 'Kanal konusu güncellendi.' });
   });
 
+  r.post('/api/channels/webhooks/warm', (req, res) => {
+    const ids = [...new Set(Array.isArray(req.body?.channelIds) ? req.body.channelIds.map(String) : [])];
+    const eligible = ids.filter((id) => channels.some((c) => c.id === id && ['text', 'announcement'].includes(c.type)));
+    pushLog('site', `Webhook hazırlığı (demo): ${eligible.length} kanal`);
+    res.json({ ok: true, started: eligible.length, webhookGate: { limit: 8, active: 0, queued: 0 }, demo: true });
+  });
+
   r.post('/api/channels/message', (req, res) => {
     const ch = channels.find((c) => c.id === req.body.channelId);
     if (!ch || !['text', 'announcement'].includes(ch.type)) return res.status(400).json({ error: 'Bu kanala mesaj gönderilemez.' });

@@ -1340,6 +1340,13 @@ async function sendMessageBatch(channels, content, repeatCount, options, onProgr
   /** Beklerken arayüzün donmuş görünmemesi için saniyede bir ilerleme yayınlar. */
   const heartbeat = setInterval(() => report(), 1000);
 
+  // Anonim modda webhook oluşturması yavaştır: gönderim yoluna girmeden
+  // sunucuya listeyi verip webhook'ları arka planda hazırlatıyoruz.
+  if (options.anonymous) {
+    api('/api/channels/webhooks/warm', { method: 'POST', body: { channelIds: channels.map((channel) => channel.id) } })
+      .catch(() => {});
+  }
+
   const sendOne = async (channel, round) => {
     attempted += 1;
     currentChannel = channel;
@@ -1563,7 +1570,7 @@ function openBulkChannelMessage() {
     messageInput,
     el('label', { class: 'f', text: 'Her kanala kaç kez?' }),
     countInput,
-    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; ${SEND_REQUEST_TIMEOUT_MS / 1000} sn içinde yanıt vermeyen kanal tekrar denenmez, atlanır ve sonuçta listelenir — böylece kuyruk hiç kilitlenmez.` }),
+    el('div', { class: 'hint', text: `Gönderim tur tur ilerler: her turda ${channels.length} kanalın her birine bir mesaj atılır, tur bitince sonraki tura geçilir. Kanallar sırayla alınır, aynı anda en fazla ${SEND_MAX_CONCURRENCY} istek gider; aynı kanala iki mesaj arasında en az ${Math.round(SEND_MIN_CHANNEL_GAP_MS / 100) / 10} sn bırakılır. Discord hız sınırı veya yavaş yanıt görülürse hız kendini düşürür, işler açılınca tekrar yükseltir; ${SEND_REQUEST_TIMEOUT_MS / 1000} sn içinde yanıt vermeyen kanal tekrar denenmez, atlanır ve sonuçta listelenir — böylece kuyruk hiç kilitlenmez.${anonymousInput.checked ? ' Anonymous webhook’ları gönderimle eşzamanlı olarak arka planda hazırlanır.' : ''}` }),
     el('div', { class: 'anonymous-option' }, [
       el('label', { class: 'mention-option' }, [anonymousInput, el('span', { text: 'Anonymous' })]),
       el('small', { text: 'Gönderici adı yalnızca “Anonymous” olur.' })
