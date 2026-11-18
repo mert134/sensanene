@@ -22,6 +22,38 @@ const anonymousWebhookCache = new Map();
 const anonymousWebhookInflight = new Map();
 const PORT = process.env.PORT || 10000;
 
+/* Discord'a giden istekler için sınırlı kapı.
+   Toplu gönderimde yüzlerce istek discord.js'in kendi kuyruğuna yığılıyordu;
+   kuyruk şişince her istek onlarca saniye bekliyor, panel "donmuş" gibi
+   görünüyordu. Bu sayaç aynı anda en fazla N Discord işlemi yapılmasını
+   sağlar, fazlası burada ÖNGÖRÜLEBİLİR biçimde sırada bekler. */
+const DISCORD_SEND_CONCURRENCY = Number(process.env.DISCORD_SEND_CONCURRENCY || 6);
+let discordSendActive = 0;
+const discordSendQueue = [];
+
+function acquireDiscordSlot() {
+  if (discordSendActive < DISCORD_SEND_CONCURRENCY) {
+    discordSendActive += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => discordSendQueue.push(resolve));
+}
+
+function releaseDiscordSlot() {
+  const next = discordSendQueue.shift();
+  if (next) next();
+  else discordSendActive -= 1;
+}
+
+async function withDiscordSlot(fn) {
+  await acquireDiscordSlot();
+  try {
+    return await fn();
+  } finally {
+    releaseDiscordSlot();
+  }
+}
+
 async function getAnonymousWebhook(channel) {
   const key = String(channel.id);
   const cached = anonymousWebhookCache.get(key);
@@ -39,16 +71,19 @@ async function getAnonymousWebhook(channel) {
 }
 
 async function resolveAnonymousWebhook(channel, key) {
-  const hooks = await channel.fetchWebhooks();
-  let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
-  if (hook && hook.name !== 'Anonymous') {
-    hook = await hook.edit({ name: 'Anonymous', reason: 'Anonymous mesaj modu güncellemesi' });
-  }
-  if (!hook) {
-    hook = await channel.createWebhook({ name: 'Anonymous', reason: 'Anonymous mesaj modu' });
-  }
-  anonymousWebhookCache.set(String(channel.id), hook);
-  return hook;
+  // Webhook sorgusu/oluşturması da birer Discord isteğidir; kapıdan geçer.
+  return withDiscordSlot(async () => {
+    const hooks = await channel.fetchWebhooks();
+    let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
+    if (hook && hook.name !== 'Anonymous') {
+      hook = await hook.edit({ name: 'Anonymous', reason: 'Anonymous mesaj modu güncellemesi' });
+    }
+    if (!hook) {
+      hook = await channel.createWebhook({ name: 'Anonymous', reason: 'Anonymous mesaj modu' });
+    }
+    anonymousWebhookCache.set(String(channel.id), hook);
+    return hook;
+  });
 }
 
 async function sendAnonymousMessage(channel, payload) {
@@ -710,13 +745,15 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
   if (allowMentions) parse.push('users', 'roles');
   if (allowEveryone || allowHere) parse.push('everyone');
   let sent;
+  // Gönderim Discord kapısından geçer: aynı anda en fazla DISCORD_SEND_CONCURRENCY
+  // istek Discord'a çıkar, fazlası sunucuda sırada bekler (kuyruk şişmez).
   if (req.body.anonymous) {
     if (!botPerms.has(PermissionsBitField.Flags.ManageWebhooks)) {
       throw new Error('Anonim mesaj için botun bu kanalda `Webhookları Yönet` yetkisi olmalı.');
     }
-    sent = await sendAnonymousMessage(channel, { content: outgoingContent, username: 'Anonymous', allowedMentions: { parse } });
+    sent = await withDiscordSlot(() => sendAnonymousMessage(channel, { content: outgoingContent, username: 'Anonymous', allowedMentions: { parse } }));
   } else {
-    sent = await channel.send({ content: outgoingContent, allowedMentions: { parse } });
+    sent = await withDiscordSlot(() => channel.send({ content: outgoingContent, allowedMentions: { parse } }));
   }
   settings.log(guild.id, 'channel', `${actor.user.username} #${channel.name} kanalına panelden ${req.body.anonymous ? 'anonim ' : ''}mesaj gönderdi`);
   res.json({ ok: true, anonymous: Boolean(req.body.anonymous), message: req.body.anonymous ? 'Anonim mesaj gönderildi.' : 'Mesaj gönderildi.', messageId: sent.id });
