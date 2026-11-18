@@ -109,6 +109,36 @@ function withIcon(name, label, className = 'icon') {
   return [iconEl(name, className), el('span', { text: label })];
 }
 
+/**
+ * Uzun toplu işlemleri parçalara bölüp ilerleme göstererek çalıştırır.
+ * Sayı sınırı YOKTUR: listenin tamamı işlenir; parçalama yalnızca tek HTTP
+ * isteğinin dakikalarca açık kalıp arayüzü kilitlememesi içindir.
+ */
+async function runInChunks(items, size, worker, onProgress) {
+  let processed = 0;
+  let succeeded = 0;
+  let failed = 0;
+  let firstError = '';
+  for (let index = 0; index < items.length; index += size) {
+    const chunk = items.slice(index, index + size);
+    try {
+      const r = await worker(chunk);
+      succeeded += Number(r?.succeeded ?? r?.created ?? 0);
+      failed += Number(r?.failed ?? 0);
+      if (!firstError && Array.isArray(r?.results)) firstError = r.results.find((item) => !item.ok)?.error || '';
+    } catch (err) {
+      failed += chunk.length;
+      if (!firstError) firstError = err.message || 'İşlem başarısız.';
+      processed += chunk.length;
+      onProgress?.({ processed, total: items.length, succeeded, failed, firstError, done: false });
+      break;
+    }
+    processed += chunk.length;
+    onProgress?.({ processed, total: items.length, succeeded, failed, firstError, done: processed >= items.length });
+  }
+  return { processed, succeeded, failed, firstError };
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -523,7 +553,14 @@ function renderMembers() {
   }
 
   grid.innerHTML = '';
-  for (const m of list) {
+  // Seçim ve toplu işlemler listenin TAMAMI üzerinde çalışır; buradaki sınır
+  // yalnızca binlerce kartı tek seferde DOM'a basıp arayüzü kilitlememek içindir.
+  const RENDER_LIMIT = 400;
+  const rendered = list.slice(0, RENDER_LIMIT);
+  if (list.length > RENDER_LIMIT) {
+    grid.append(el('div', { class: 'hint', style: 'margin-bottom:8px', text: `${list.length} üyenin ilk ${RENDER_LIMIT} tanesi gösteriliyor; arama/filtre daraltır. "Tümünü seç" ve toplu işlemler bütün üyeleri kapsar.` }));
+  }
+  for (const m of rendered) {
     const tags = el('div', { class: 'tags' });
     if (m.bot) tags.append(el('span', { class: 'tag bot', text: 'BOT' }));
     if (m.muted) tags.append(el('span', { class: 'tag muted', text: 'SUSTURULMUŞ' }));
@@ -573,16 +610,41 @@ async function openMemberBulk(kind) {
   const labels = { ban: 'Toplu yasaklama', kick: 'Toplu sunucudan atma', mute: 'Toplu susturma', unmute: 'Toplu susturma kaldırma', warn: 'Toplu uyarı', roles: 'Toplu rol yönetimi' };
   const body = [
     el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: labels[kind] }), el('div', { class: 'sub', text: `${ids.length} üye seçildi` })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]),
-    el('div', { class: 'bulk-summary' }, [el('div', {}, [el('b', { text: String(ids.length) }), el('span', { text: 'Seçili üye' })]), el('div', {}, [el('b', { text: kind === 'ban' ? 'Kalıcı' : 'Toplu' }), el('span', { text: 'İşlem tipi' })]), el('div', {}, [el('b', { text: '50' }), el('span', { text: 'İşlem sınırı' })])])
+    el('div', { class: 'bulk-summary' }, [el('div', {}, [el('b', { text: String(ids.length) }), el('span', { text: 'Seçili üye' })]), el('div', {}, [el('b', { text: kind === 'ban' ? 'Kalıcı' : 'Toplu' }), el('span', { text: 'İşlem tipi' })]), el('div', {}, [el('b', { text: 'Yok' }), el('span', { text: 'İşlem sınırı' })])])
   ];
   if (action) body.push(el('label', { class: 'f', text: 'İşlem' }), action, el('div', { style: 'height:10px' }), el('label', { class: 'f', text: 'Rol' }), role);
   if (duration) body.push(el('label', { class: 'f', text: 'Süre' }), duration);
   if (!roleMode) body.push(el('label', { class: 'f', text: 'Sebep' }), reason);
-  body.push(el('button', { class: `btn btn-block ${kind === 'ban' ? 'btn-danger' : 'btn-primary'}`, style: 'margin-top:16px', text: 'İşlemi uygula', onclick: async () => {
+  const progress = el('div', { class: 'hint send-progress', style: 'min-height:18px;margin:10px 0 0' });
+  const applyButton = el('button', { class: `btn btn-block ${kind === 'ban' ? 'btn-danger' : 'btn-primary'}`, style: 'margin-top:16px', text: 'İşlemi uygula' });
+  applyButton.addEventListener('click', async () => {
     const selectedAction = roleMode ? $('#bulkMemberAction').value : kind;
-    const payload = { action: selectedAction, userIds: ids, reason: reason.value, roleId: roleMode ? $('#bulkMemberRole').value : null, durationMs: duration ? Number(duration.value) : null };
-    try { const r = await api('/api/mod/bulk', { method: 'POST', body: payload }); toast(`${r.succeeded} başarılı, ${r.failed} başarısız`, r.failed ? 'warn' : 'ok'); closeModal(); state.selectedMembers.clear(); loadMembers(); } catch (e) { toast(e.message, 'err'); }
-  } }));
+    applyButton.disabled = true;
+    try {
+      const r = await runInChunks(ids, 25, (chunk) => api('/api/mod/bulk', {
+        method: 'POST',
+        body: {
+          action: selectedAction,
+          userIds: chunk,
+          reason: reason.value,
+          roleId: roleMode ? $('#bulkMemberRole').value : null,
+          durationMs: duration ? Number(duration.value) : null
+        }
+      }), (state) => {
+        progress.textContent = `İşleniyor: ${state.processed}/${state.total} · ${state.succeeded} başarılı${state.failed ? ` · ${state.failed} başarısız` : ''}`;
+      });
+      progress.textContent = `Bitti: ${r.processed}/${ids.length} · ${r.succeeded} başarılı${r.failed ? ` · ${r.failed} başarısız` : ''}${r.firstError ? ` · ${r.firstError}` : ''}`;
+      toast(`${r.succeeded} başarılı, ${r.failed} başarısız`, r.failed ? 'warn' : 'ok');
+      state.selectedMembers.clear();
+      loadMembers();
+    } catch (e) {
+      progress.textContent = `Hata: ${e.message}`;
+      toast(e.message, 'err');
+    } finally {
+      applyButton.disabled = false;
+    }
+  });
+  body.push(progress, applyButton);
   openModal(body);
 }
 
@@ -1815,11 +1877,32 @@ function openBulkUnban() {
     el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu yasak kaldırma' }), el('div', { class: 'sub', text: 'Her satıra bir Discord kullanıcı ID’si' })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]),
     el('textarea', { class: 'input', id: 'bulkUnbanIds', rows: '7', placeholder: '123456789012345678\n987654321098765432' }),
     el('input', { class: 'input', id: 'bulkUnbanReason', style: 'margin-top:10px', placeholder: 'Sebep (opsiyonel)' }),
-    el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Yasakları kaldır', onclick: async () => {
-      const userIds = $('#bulkUnbanIds').value.split(/\s|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50);
-      if (!userIds.length) return toast('Kullanıcı ID’si gir', 'warn');
-      try { const r = await api('/api/mod/bulk', { method: 'POST', body: { action: 'unban', userIds, reason: $('#bulkUnbanReason').value } }); toast(`${r.succeeded} yasak kaldırıldı, ${r.failed} başarısız`, r.failed ? 'warn' : 'ok'); closeModal(); loadBans(); } catch (e) { toast(e.message, 'err'); }
-    } })
+    (() => {
+      const progress = el('div', { class: 'hint send-progress', style: 'min-height:18px;margin:10px 0 0' });
+      const button = el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Yasakları kaldır' });
+      button.addEventListener('click', async () => {
+        const userIds = [...new Set($('#bulkUnbanIds').value.split(/\s|,/).map((x) => x.trim()).filter(Boolean))];
+        if (!userIds.length) return toast('Kullanıcı ID’si gir', 'warn');
+        button.disabled = true;
+        try {
+          const r = await runInChunks(userIds, 25, (chunk) => api('/api/mod/bulk', {
+            method: 'POST',
+            body: { action: 'unban', userIds: chunk, reason: $('#bulkUnbanReason').value }
+          }), (state) => {
+            progress.textContent = `İşleniyor: ${state.processed}/${state.total} · ${state.succeeded} kaldırıldı${state.failed ? ` · ${state.failed} başarısız` : ''}`;
+          });
+          progress.textContent = `Bitti: ${r.processed}/${userIds.length} · ${r.succeeded} kaldırıldı${r.failed ? ` · ${r.failed} başarısız` : ''}`;
+          toast(`${r.succeeded} yasak kaldırıldı, ${r.failed} başarısız`, r.failed ? 'warn' : 'ok');
+          loadBans();
+        } catch (e) {
+          progress.textContent = `Hata: ${e.message}`;
+          toast(e.message, 'err');
+        } finally {
+          button.disabled = false;
+        }
+      });
+      return [progress, button];
+    })()
   ]);
 }
 
@@ -1873,7 +1956,33 @@ function openBulkRoleCreate() {
     el('div', { class: 'modal-head' }, [el('div', {}, [el('h3', { text: 'Toplu rol oluştur' }), el('div', { class: 'sub', text: 'Her satıra bir rol adı' })]), el('button', { class: 'modal-close', title: 'Kapat', onclick: closeModal }, [iconEl('x', 'icon icon-sm')])]),
     el('textarea', { class: 'input', id: 'bulkRoleNames', rows: '8', placeholder: 'Yönetici\nModeratör\nVIP\nÜye' }),
     el('label', { class: 'f', style: 'margin-top:12px', text: 'Rol rengi' }), el('input', { type: 'color', class: 'input', id: 'bulkRoleColor', value: '#5865f2', style: 'height:44px' }),
-    el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Rolleri oluştur', onclick: async () => { const names = $('#bulkRoleNames').value.split(/\n|,/).map((x) => x.trim()).filter(Boolean).slice(0, 50); if (!names.length) return toast('Rol adı gir', 'warn'); const color = $('#bulkRoleColor').value; try { const r = await api('/api/roles/bulk', { method: 'POST', body: { action: 'create', items: names.map((name) => ({ name, color })) } }); toast(`${r.succeeded} rol oluşturuldu`, r.failed ? 'warn' : 'ok'); closeModal(); loadRoles(); } catch (e) { toast(e.message, 'err'); } } })
+    (() => {
+      const progress = el('div', { class: 'hint send-progress', style: 'min-height:18px;margin:10px 0 0' });
+      const button = el('button', { class: 'btn btn-primary btn-block', style: 'margin-top:14px', text: 'Rolleri oluştur' });
+      button.addEventListener('click', async () => {
+        const names = $('#bulkRoleNames').value.split(/\n|,/).map((x) => x.trim()).filter(Boolean);
+        if (!names.length) return toast('Rol adı gir', 'warn');
+        const color = $('#bulkRoleColor').value;
+        button.disabled = true;
+        try {
+          const r = await runInChunks(names, 25, (chunk) => api('/api/roles/bulk', {
+            method: 'POST',
+            body: { action: 'create', items: chunk.map((name) => ({ name, color })) }
+          }), (state) => {
+            progress.textContent = `İşleniyor: ${state.processed}/${state.total} · ${state.succeeded} oluşturuldu${state.failed ? ` · ${state.failed} başarısız` : ''}`;
+          });
+          progress.textContent = `Bitti: ${r.processed}/${names.length} · ${r.succeeded} oluşturuldu${r.failed ? ` · ${r.failed} başarısız` : ''}${r.firstError ? ` · ${r.firstError}` : ''}`;
+          toast(`${r.succeeded} rol oluşturuldu${r.failed ? `, ${r.failed} başarısız` : ''}`, r.failed ? 'warn' : 'ok');
+          loadRoles();
+        } catch (e) {
+          progress.textContent = `Hata: ${e.message}`;
+          toast(e.message, 'err');
+        } finally {
+          button.disabled = false;
+        }
+      });
+      return [progress, button];
+    })()
   ]);
 }
 function editRole(role) {
