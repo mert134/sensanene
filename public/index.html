@@ -60,6 +60,7 @@
       <button class="nav-item" data-section="members"><span class="ico" data-icon="users"></span> Üyeler</button>
       <button class="nav-item" data-section="channels"><span class="ico" data-icon="hash"></span> Kanallar</button>
       <button class="nav-item" data-section="roles"><span class="ico" data-icon="tag"></span> Roller</button>
+      <button class="nav-item" data-section="guard"><span class="ico" data-icon="shield"></span> Guard</button>
       <button class="nav-item" data-section="games"><span class="ico" data-icon="dice"></span> Oyunlar</button>
       <button class="nav-item" data-section="settings"><span class="ico" data-icon="settings"></span> Ayarlar</button>
       <button class="nav-item" data-section="logs"><span class="ico" data-icon="list"></span> Kayıtlar</button>
@@ -211,6 +212,71 @@
         </div>
         <div class="card">
           <div id="roleList"><div class="empty">Yükleniyor…</div></div>
+        </div>
+      </section>
+
+      <!-- ---------- GUARD ---------- -->
+      <section class="section" id="sec-guard">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="guardToggleBtn" onclick="toggleGuard()">Korumayı aç</button>
+          <button class="btn" onclick="takeGuardBackup()" data-icon-label="save:Yedek al"></button>
+          <button class="btn" onclick="loadGuard()" data-icon-label="refresh:Yenile"></button>
+          <span class="badge" id="guardBadge">yükleniyor</span>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-9.6V5.2L12 2.2 4 5.2v7.2C4 18.4 12 22 12 22z"/></svg> Koruma durumu</h3>
+            <div class="hint" id="guardSummary"></div>
+            <div class="field">
+              <label class="f" for="guardLogChannel">Guard kanalı</label>
+              <select class="input" id="guardLogChannel"><option value="">— seçilmedi —</option></select>
+              <div class="hint">İhlal ve şüpheli hareket kayıtları bu kanala yazılır.</div>
+            </div>
+            <div class="field">
+              <label class="f" for="guardPunishment">Ceza kuralı</label>
+              <select class="input" id="guardPunishment"></select>
+            </div>
+            <div class="field">
+              <label class="f" for="guardWindow">Sayım penceresi (saniye)</label>
+              <input class="input" id="guardWindow" type="number" min="5" max="600" step="5" />
+              <div class="hint">Limitler bu süre içinde sayılır (5–600 sn).</div>
+            </div>
+            <div class="field">
+              <label class="f" for="guardJailRole">Koruma rolü</label>
+              <select class="input" id="guardJailRole"><option value="">— kapalı —</option></select>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="saveGuardConfig()" data-icon-label="save:Kaydet"></button>
+            <div class="hint" id="guardNote"></div>
+          </div>
+
+          <div class="card">
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg> Modüller <span class="badge" id="guardModuleCount">0/0</span></h3>
+            <div id="guardModules"></div>
+            <h3 style="margin-top:22px"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="3.5"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.6a4 4 0 0 1 0 7.75"/></svg> Güvenli liste <span class="badge" id="guardWhitelistCount">0</span></h3>
+            <div class="toolbar" style="padding:0;margin-bottom:10px">
+              <input class="input" id="guardWhitelistInput" placeholder="Kullanıcı ID" style="max-width:220px" />
+              <button class="btn btn-sm btn-primary" onclick="addGuardWhitelist()">Ekle</button>
+            </div>
+            <div class="hint" style="margin-bottom:8px">Güvenli listedeki kullanıcılar limitlere takılmaz.</div>
+            <div id="guardWhitelist"></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg> Limitler <span class="badge" id="guardWindowBadge">60 sn</span></h3>
+          <div class="grid cols-3" id="guardLimits"></div>
+          <button class="btn btn-primary" style="margin-top:12px" onclick="saveGuardLimits()" data-icon-label="save:Limitleri kaydet"></button>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Guard olayları <span class="badge" id="guardEventCount">0</span></h3>
+          <div class="toolbar" style="padding:0;margin-bottom:6px">
+            <button class="btn btn-sm" onclick="loadGuardEvents()" data-icon-label="refresh:Yenile"></button>
+            <button class="btn btn-sm" onclick="runGuardTest()" data-icon-label="activity:Test olayı üret"></button>
+            <button class="btn btn-sm btn-danger" onclick="clearGuardEvents()">Akışı temizle</button>
+          </div>
+          <div id="guardEvents"><div class="empty">Yükleniyor…</div></div>
         </div>
       </section>
 

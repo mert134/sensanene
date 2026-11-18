@@ -37,7 +37,8 @@ const LOG_TYPES = {
   channel: '📁 Kanal İşlemi',
   role: '🎭 Rol İşlemi',
   site: '🖥️ Panel İşlemi',
-  bot: '🤖 Bot'
+  bot: '🤖 Bot',
+  guard: '🛡️ Guard'
 };
 
 function log(guildId, type, text, actor = null) {

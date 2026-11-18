@@ -14,6 +14,8 @@ const DEFAULT_DB = {
   wallets: {},    // guildId -> userId -> { coins, lastDaily, wins, losses, games }
   warnings: {},   // guildId -> userId -> [uyarı]
   logs: {},       // guildId -> [kayıt]
+  guard: {},      // guildId -> guard (koruma) yapılandırması
+  guardEvents: {},// guildId -> [guard olayı]
   meta: { created: Date.now() }
 };
 
@@ -28,6 +30,8 @@ function load() {
         wallets: raw.wallets || {},
         warnings: raw.warnings || {},
         logs: raw.logs || {},
+        guard: raw.guard || {},
+        guardEvents: raw.guardEvents || {},
         meta: raw.meta || { created: Date.now() }
       };
     }

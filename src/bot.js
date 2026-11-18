@@ -19,6 +19,7 @@ const mod = require('./moderation');
 const eco = require('./economy');
 const games = require('./games');
 const { funSlashCommands, handleFunInteraction } = require('./funCommands');
+const guard = require('./guard');
 
 const COLOR = {
   main: 0x5865f2,
@@ -90,6 +91,9 @@ function buildClient() {
     if (interaction.isChatInputCommand()) handleInteraction(interaction).catch((e) => handleInteractionError(interaction, e));
   });
   client.on(Events.GuildCreate, (guild) => registerSlashForGuild(guild));
+
+  // Guard (koruma) izlemesi: denetim kaydı, üye katılımı ve mesaj akışı.
+  guard.start(client);
 
   return client;
 }
@@ -177,6 +181,10 @@ cmd(['yardım', 'help', 'komutlar'], 'Tüm komutları listeler', '/yardım', asy
       value: '`/ban` • `/unban` • `/kick`\n`/mute` • `/unmute` • `/warn`\n`/uyarılar` • `/temizle`'
     },
     {
+      name: '🛡️ Guard',
+      value: '`/guard durum` • `/guard aç` • `/guard kapat`\n`/guard modül` • `/guard limit` • `/guard pencere`\n`/guard ceza` • `/guard kanal` • `/guard güvenli`\n`/guard olaylar` • `/guard yedek` • `/guard test`'
+    },
+    {
       name: '📁 Kanal',
       value: '`/kanal-oluştur` • `/kanal-ad` • `/kanal-sil`'
     },
@@ -205,7 +213,7 @@ cmd(['yardım', 'help', 'komutlar'], 'Tüm komutları listeler', '/yardım', asy
     .setColor(COLOR.main)
     .setAuthor({ name: 'LORES • Komut Merkezi', iconURL: ctx.client.user.displayAvatarURL() })
     .setTitle('✨ Güç senin elinde')
-    .setDescription('**85 özel /** komutundan birini seç. Discord yazarken seçenekleri otomatik gösterecek.')
+    .setDescription(`**${slashCommands.length} özel /** komutundan birini seç. Discord yazarken seçenekleri otomatik gösterecek.`)
     .addFields(categories)
     .setThumbnail(ctx.client.user.displayAvatarURL({ size: 256 }))
     .setFooter({ text: `${ctx.guild.name} • Süreler: 10m, 2h, 1g • Bahis en az 10 coin`, iconURL: ctx.guild.iconURL() || undefined })
@@ -482,7 +490,7 @@ const slashCommands = [
   new SlashCommandBuilder().setName('8ball').setDescription('Sihirli küre sorunu cevaplasın')
     .addStringOption(o => o.setName('soru').setDescription('Cevabını aradığın soru').setRequired(true).setMaxLength(300)),
   new SlashCommandBuilder().setName('espri').setDescription('Lores Bot sana bir espri yapsın')
-].map(c => c.setDMPermission(false).toJSON()).concat(funSlashCommands);
+].map(c => c.setDMPermission(false).toJSON()).concat(funSlashCommands, guard.guardSlashCommands);
 
 async function registerSlashForGuild(guild) {
   try {
@@ -535,6 +543,11 @@ function interactionMessage(interaction) {
 
 async function handleInteraction(interaction) {
   if (!interaction.guild) return;
+  // Guard komutları kendi kaydını ve yanıtını yönetir.
+  if (await guard.handleGuardInteraction(interaction)) {
+    botState.commands += 1;
+    return;
+  }
   if (await handleFunInteraction(interaction)) {
     botState.commands += 1;
     settings.log(interaction.guild.id, 'bot', `${interaction.user.tag}: /${interaction.commandName} kullandı`);

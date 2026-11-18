@@ -6,6 +6,7 @@
 const express = require('express');
 const games = require('./games');
 const eco = require('./economy');
+const guard = require('./guard');
 const { db } = require('./store');
 
 const GUILD = { id: 'demo-guild', name: 'Demo Sunucu', ownerId: 'u1' };
@@ -78,6 +79,51 @@ const DEMO_USER = { id: 'u1', username: 'kaptan', globalName: 'Kaptan', avatar: 
 function pushLog(type, text, actor = 'kaptan') {
   logs.unshift({ type, text, actor, at: Date.now() });
   logs = logs.slice(0, 60);
+}
+
+/* ---------------------------------------------------------- GUARD (DEMO)
+   Demo, gerçek guard modülünü kullanır: yapılandırma ve olay akışı aynı
+   koddan geçer, yalnızca Discord tarafı sahte nesnelerle beslenir. */
+const DEMO_TYPE_ID = { text: 0, announcement: 5, voice: 2, category: 4, forum: 15 };
+
+function guardGuild() {
+  return {
+    id: GUILD.id,
+    name: GUILD.name,
+    channels: {
+      cache: new Map(channels.map((c) => [c.id, {
+        id: c.id,
+        name: c.name,
+        type: DEMO_TYPE_ID[c.type] ?? 0,
+        parentId: c.parentId || null,
+        position: c.position,
+        topic: c.topic || null,
+        isTextBased: () => ['text', 'announcement'].includes(c.type)
+      }]))
+    },
+    roles: {
+      cache: new Map(roles.map((r) => [r.id, { id: r.id, name: r.name, color: 0, position: r.position, managed: Boolean(r.managed), permissions: { bitfield: 0 } }]))
+    }
+  };
+}
+
+let guardSeeded = false;
+
+function seedGuard() {
+  if (guardSeeded) return; // demo oturumu boyunca bir kez hazırlanır
+  guardSeeded = true;
+  guard.update(GUILD.id, { logChannelId: 'c2', whitelist: ['u1', 'u2'], windowSeconds: 60, punishment: 'ban' });
+  guard.setEnabled(GUILD.id, true, 'kaptan');
+  const now = Date.now();
+  const seed = [
+    { at: now - 1000 * 60 * 3, type: 'violation', severity: 'high', title: 'Kanal silme sınırı aşıldı', detail: 'Hedef: #eski-sohbet · 3 işlem / 60 sn', module: 'channelGuard', action: 'channelDelete', actor: { id: 'u6', name: 'elifs' }, count: 3, limit: 2 },
+    { at: now - 1000 * 60 * 11, type: 'info', severity: 'medium', title: 'Sunucuya bot eklendi', detail: 'MüzikBot · güvenli listede değil', module: 'botGuard', action: 'botAdd', actor: { id: 'u8', name: 'musicbot' }, count: 1, limit: 1 },
+    { at: now - 1000 * 60 * 26, type: 'violation', severity: 'medium', title: 'Webhook oluşturma sınırı aşıldı', detail: '#duyurular · 4 işlem / 60 sn', module: 'webhookGuard', action: 'webhook', actor: { id: 'u3', name: 'mehmet_42' }, count: 4, limit: 3 },
+    { at: now - 1000 * 60 * 44, type: 'info', severity: 'low', title: 'Davet linki görüldü', detail: '#genel-sohbet · discord.gg/xxxx', module: 'urlGuard', action: null, actor: { id: 'u9', name: 'deniz' }, count: null, limit: null },
+    { at: now - 1000 * 60 * 62, type: 'violation', severity: 'high', title: 'Toplu katılım', detail: '10 saniyede 7 yeni katılım', module: 'antiRaid', action: 'memberPrune', actor: { id: null, name: '7 yeni katılım' }, count: 7, limit: 5 },
+    { at: now - 1000 * 60 * 95, type: 'action', severity: 'low', title: 'Koruma açıldı', detail: 'İşlemi yapan: kaptan', module: null, action: null, actor: null, count: null, limit: null }
+  ];
+  db.guardEvents[GUILD.id] = seed.map((e, i) => ({ id: `demo-${i}`, ...e }));
 }
 
 function router() {
@@ -439,6 +485,105 @@ function router() {
   );
 
   r.post('/api/play/daily', (req, res) => res.json(eco.daily(GUILD.id, DEMO_USER.id)));
+
+  // ---------------------------------------------------------------- GUARD
+  seedGuard();
+
+  const guardPayload = () => {
+    const cfg = guard.get(GUILD.id);
+    const guild = guardGuild();
+    return {
+      guard: {
+        ...cfg,
+        whitelist: cfg.whitelist.map((id) => {
+          const m = members.find((x) => x.id === String(id));
+          return { id: String(id), name: m ? m.username : String(id), bot: Boolean(m?.bot) };
+        })
+      },
+      modules: guard.MODULES,
+      limitActions: guard.LIMIT_ACTIONS,
+      punishments: guard.PUNISHMENTS,
+      summary: guard.summary(GUILD.id, guild),
+      events: guard.events(GUILD.id, 40),
+      textChannels: channels.filter((c) => ['text', 'announcement'].includes(c.type)).map((c) => ({ id: c.id, name: c.name })),
+      roles: roles.map((r2) => ({ id: r2.id, name: r2.name }))
+    };
+  };
+
+  r.get('/api/guard', (req, res) => res.json(guardPayload()));
+
+  r.post('/api/guard/config', (req, res) => {
+    const body = req.body || {};
+    const patch = {};
+    if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
+    if (body.logChannelId !== undefined) patch.logChannelId = body.logChannelId || null;
+    if (body.jailRoleId !== undefined) patch.jailRoleId = body.jailRoleId || null;
+    if (body.punishment !== undefined) {
+      if (!guard.PUNISHMENTS.some((p) => p.key === body.punishment)) return res.status(400).json({ error: 'Geçersiz ceza kuralı.' });
+      patch.punishment = body.punishment;
+    }
+    if (body.windowSeconds !== undefined) {
+      const n = Math.floor(Number(body.windowSeconds));
+      if (!Number.isFinite(n) || n < 5 || n > 600) return res.status(400).json({ error: 'Pencere 5 ile 600 saniye arasında olmalı.' });
+      patch.windowSeconds = n;
+    }
+    if (patch.enabled !== undefined && patch.enabled !== guard.get(GUILD.id).enabled) {
+      guard.setEnabled(GUILD.id, patch.enabled, 'kaptan');
+      pushLog('guard', `Koruma ${patch.enabled ? 'açıldı' : 'kapatıldı'}`);
+      delete patch.enabled;
+    }
+    guard.update(GUILD.id, patch);
+    const payload = guardPayload();
+    res.json({ ok: true, guard: payload.guard, summary: payload.summary });
+  });
+
+  r.post('/api/guard/module', (req, res) => {
+    const result = guard.setModule(GUILD.id, String(req.body?.key || ''), Boolean(req.body?.enabled));
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    pushLog('guard', `${result.label} modülü ${result.enabled ? 'açıldı' : 'kapatıldı'}`);
+    const payload = guardPayload();
+    res.json({ ok: true, guard: payload.guard, summary: payload.summary });
+  });
+
+  r.post('/api/guard/limit', (req, res) => {
+    const result = guard.setLimit(GUILD.id, String(req.body?.key || ''), req.body?.value);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    pushLog('guard', `${result.label} limiti ${result.limit} oldu`);
+    const payload = guardPayload();
+    res.json({ ok: true, guard: payload.guard, summary: payload.summary });
+  });
+
+  r.post('/api/guard/whitelist', (req, res) => {
+    const userId = String(req.body?.userId || '').replace(/[<@!>]/g, '');
+    if (!/^\d{5,25}$/.test(userId)) return res.status(400).json({ error: 'Geçerli bir kullanıcı ID gir.' });
+    const action = req.body?.action === 'remove' ? 'remove' : 'add';
+    const result = action === 'add' ? guard.addWhitelist(GUILD.id, userId) : guard.removeWhitelist(GUILD.id, userId);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    pushLog('guard', `Güvenli liste güncellendi (${action === 'add' ? 'ekleme' : 'çıkarma'}): ${userId}`);
+    const payload = guardPayload();
+    res.json({ ok: true, guard: payload.guard });
+  });
+
+  r.get('/api/guard/events', (req, res) => res.json({ events: guard.events(GUILD.id, 60), summary: guard.summary(GUILD.id, guardGuild()) }));
+
+  r.post('/api/guard/events/clear', (req, res) => {
+    guard.clearEvents(GUILD.id);
+    pushLog('guard', 'Guard olay akışı temizlendi');
+    res.json({ ok: true, events: [] });
+  });
+
+  r.post('/api/guard/backup', (req, res) => {
+    const result = guard.takeBackup(guardGuild());
+    pushLog('guard', `Yedek alındı: ${result.roles} rol, ${result.channels} kanal`);
+    const payload = guardPayload();
+    res.json({ ok: true, ...result, summary: payload.summary });
+  });
+
+  r.post('/api/guard/test', (req, res) => {
+    const event = guard.runTest(guardGuild(), 'kaptan');
+    pushLog('guard', 'Guard testi çalıştırıldı — örnek kayıt üretildi');
+    res.json({ ok: true, event, events: guard.events(GUILD.id, 60), summary: guard.summary(GUILD.id, guardGuild()) });
+  });
 
   r.get('/api/bot/invite', (req, res) =>
     res.json({ url: 'https://discord.com/oauth2/authorize?client_id=DEMO&permissions=8&scope=bot' })
