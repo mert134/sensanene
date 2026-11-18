@@ -83,31 +83,47 @@ async function getAnonymousWebhook(channel) {
   return pending;
 }
 
+const WEBHOOK_RESOLVE_TIMEOUT_MS = Number(process.env.WEBHOOK_RESOLVE_TIMEOUT_MS || 20000);
+
 async function resolveAnonymousWebhook(channel, key) {
   // Webhook sorgusu/oluşturması kendi kapısından geçer; gönderimleri yavaşlatmaz.
-  return webhookGate.run(async () => {
-    const hooks = await channel.fetchWebhooks();
-    let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
-    if (hook && hook.name !== 'Anonymous') {
-      hook = await hook.edit({ name: 'Anonymous', reason: 'Anonymous mesaj modu güncellemesi' });
-    }
-    if (!hook) {
-      hook = await channel.createWebhook({ name: 'Anonymous', reason: 'Anonymous mesaj modu' });
-    }
-    anonymousWebhookCache.set(String(channel.id), hook);
-    return hook;
-  });
+  // Kapı slotu sonsuza kadar park etmesin diye çözüme zaman aşımı konur:
+  // süre dolarsa slot bırakılır, kanal hata olarak raporlanır, kuyruk akmaya devam eder.
+  return webhookGate.run(() => Promise.race([
+    (async () => {
+      const hooks = await channel.fetchWebhooks();
+      let hook = hooks.find((webhook) => webhook.owner?.id === botState.client.user.id && ['Anonymous', 'Anonim Modu', 'LORES Anonymous'].includes(webhook.name));
+      if (hook && hook.name !== 'Anonymous') {
+        hook = await hook.edit({ name: 'Anonymous', reason: 'Anonymous mesaj modu güncellemesi' });
+      }
+      if (!hook) {
+        hook = await channel.createWebhook({ name: 'Anonymous', reason: 'Anonymous mesaj modu' });
+      }
+      anonymousWebhookCache.set(String(channel.id), hook);
+      return hook;
+    })(),
+    new Promise((_, reject) => setTimeout(() => {
+      reject(new Error(`Webhook hazırlığı ${WEBHOOK_RESOLVE_TIMEOUT_MS / 1000} sn'de tamamlanmadı.`));
+    }, WEBHOOK_RESOLVE_TIMEOUT_MS))
+  ]));
 }
 
+/**
+ * Anonim mesaj gönderimi.
+ * ÖNEMLİ: webhook çözümü webhookGate'te, mesaj gönderimi sendGate'te bekler.
+ * Webhook çözümünü sendGate İÇİNDE beklersek, webhook yavaşladığında tüm
+ * gönderim slotları park eder ve webhook'u hazır olan kanallar bile
+ * gönderemezdi (eskiden "7 kanala gönderip kalıyordu" belirtisi buydu).
+ */
 async function sendAnonymousMessage(channel, payload) {
   let hook = await getAnonymousWebhook(channel);
   try {
-    return await hook.send(payload);
+    return await sendGate.run(() => hook.send(payload));
   } catch (err) {
     if (Number(err.code) !== 10015) throw err;
     anonymousWebhookCache.delete(String(channel.id));
     hook = await getAnonymousWebhook(channel);
-    return hook.send(payload);
+    return sendGate.run(() => hook.send(payload));
   }
 }
 
@@ -521,7 +537,6 @@ app.get(
     const list = [...members.values()]
       .filter((m) => !q || m.user.username.toLowerCase().includes(q) || m.displayName.toLowerCase().includes(q) || m.id.includes(q))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'tr'))
-      .slice(0, 500)
       .map((m) => ({
         id: m.id,
         username: m.user.username,
@@ -618,7 +633,9 @@ app.post('/api/mod/bulk', requireAuth, wrap(async (req, res) => {
   const guild = getGuild(req.session.guildId);
   const actor = await actorOf(req, guild);
   const { action, userIds, reason, durationMs, deleteSeconds, roleId } = req.body || {};
-  const ids = [...new Set(Array.isArray(userIds) ? userIds.map(String) : [])].slice(0, 50);
+  // Uygulama düzeyinde sayı sınırı yok: ne geldiyse işlenir, Discord'un kendi
+  // hız sınırları discord.js içinde yönetilir.
+  const ids = [...new Set(Array.isArray(userIds) ? userIds.map(String) : [])];
   if (!ids.length) throw new Error('İşlem yapılacak üye seçilmedi.');
   const actions = {
     ban: (id) => mod.ban(guild, actor, id, reason, Math.min(Number(deleteSeconds) || 0, 604800)),
@@ -743,7 +760,7 @@ app.post('/api/channels/topic', requireAuth, wrap(async (req, res) => {
  */
 app.post('/api/channels/webhooks/warm', requireAuth, wrap(async (req, res) => {
   const guild = getGuild(req.session.guildId);
-  const ids = [...new Set(Array.isArray(req.body?.channelIds) ? req.body.channelIds.map(String) : [])].slice(0, 500);
+  const ids = [...new Set(Array.isArray(req.body?.channelIds) ? req.body.channelIds.map(String) : [])];
   if (!ids.length) return res.json({ ok: true, started: 0 });
 
   const channels = ids
@@ -801,7 +818,8 @@ app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
     if (!botPerms.has(PermissionsBitField.Flags.ManageWebhooks)) {
       throw new Error('Anonim mesaj için botun bu kanalda `Webhookları Yönet` yetkisi olmalı.');
     }
-    sent = await withDiscordSlot(() => sendAnonymousMessage(channel, { content: outgoingContent, username: 'Anonymous', allowedMentions: { parse } }));
+    // sendAnonymousMessage kapıları kendi içinde doğru sırada kullanır.
+    sent = await sendAnonymousMessage(channel, { content: outgoingContent, username: 'Anonymous', allowedMentions: { parse } });
   } else {
     sent = await withDiscordSlot(() => channel.send({ content: outgoingContent, allowedMentions: { parse } }));
   }
@@ -839,7 +857,6 @@ app.post('/api/channels/bulk/rename', requireAuth, wrap(async (req, res) => {
   const actor = await actorOf(req, guild);
   const { items } = req.body || {};
   if (!Array.isArray(items) || !items.length) throw new Error('Düzenlenecek kanal seçilmedi.');
-  if (items.length > 50) throw new Error('Tek seferde en fazla 50 kanal gönderilebilir.');
   const result = await mod.bulkRenameChannels(guild, actor, items);
   if (result.ok && result.updated > 0) {
     settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal adı değiştirdi (${result.updated} kanal)`);
@@ -850,7 +867,7 @@ app.post('/api/channels/bulk/rename', requireAuth, wrap(async (req, res) => {
 app.post('/api/channels/bulk/topic', requireAuth, wrap(async (req, res) => {
   const guild = getGuild(req.session.guildId);
   const actor = await actorOf(req, guild);
-  const ids = [...new Set(Array.isArray(req.body.channelIds) ? req.body.channelIds.map(String) : [])].slice(0, 50);
+  const ids = [...new Set(Array.isArray(req.body.channelIds) ? req.body.channelIds.map(String) : [])];
   if (!ids.length) throw new Error('Kanal seçilmedi.');
   const results = [];
   for (const channelId of ids) results.push({ channelId, ...(await mod.setChannelTopic(guild, actor, channelId, req.body.topic)) });
@@ -863,7 +880,6 @@ app.post('/api/channels/bulk/delete', requireAuth, wrap(async (req, res) => {
   const actor = await actorOf(req, guild);
   const { channelIds, deleteChildren } = req.body || {};
   if (!Array.isArray(channelIds) || !channelIds.length) throw new Error('Silinecek kanal seçilmedi.');
-  if (channelIds.length > 50) throw new Error('Tek seferde en fazla 50 kanal gönderilebilir.');
   const result = await mod.bulkDeleteChannels(guild, actor, channelIds, Boolean(deleteChildren));
   if (result.ok && result.deleted > 0) {
     settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal sildi (${result.deleted} kanal)`);
@@ -943,7 +959,7 @@ app.post('/api/roles/bulk', requireAuth, wrap(async (req, res) => {
   const { action } = req.body || {};
   const results = [];
   if (action === 'create') {
-    const items = (Array.isArray(req.body.items) ? req.body.items : []).slice(0, 50);
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
     for (const item of items) {
       try {
         const role = await guild.roles.create({ name: String(item.name || '').trim().slice(0, 100), color: item.color || undefined, reason: `${actor.user.username}: toplu rol oluşturma` });
@@ -951,7 +967,7 @@ app.post('/api/roles/bulk', requireAuth, wrap(async (req, res) => {
       } catch (e) { results.push({ ok: false, error: e.message, name: item.name }); }
     }
   } else {
-    const ids = [...new Set(Array.isArray(req.body.roleIds) ? req.body.roleIds.map(String) : [])].slice(0, 50);
+    const ids = [...new Set(Array.isArray(req.body.roleIds) ? req.body.roleIds.map(String) : [])];
     if (!ids.length) throw new Error('Rol seçilmedi.');
     for (const id of ids) {
       const role = guild.roles.cache.get(id);
