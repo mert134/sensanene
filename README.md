@@ -18,6 +18,7 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - İzleme gerçek Discord olaylarından beslenir: denetim kaydı (kanal/rol silme-oluşturma, webhook, bot ekleme, ban/kick/toplu atma), üye katılımı (toplu katılım/bot eklenmesi) ve mesaj akışı (davet linki, hızlı tekrar)
 - Sınır aşımı ve şüpheli hareketler **guard kanalına embed olarak** yazılır ve paneldeki olay akışında önem derecesiyle (YÜKSEK/ORTA/BİLGİ) listelenir
 - **Güvenli liste:** listedeki kullanıcılar limitlere takılmaz
+- **Kendi işlemlerini tehlike saymaz:** panelin/botun yaptığı toplu işlemler (kanal/rol oluşturma-silme, toplu ban/kick, **Anonymous webhook ekleme**, anonim toplu gönderim) guard'ı tetiklemez — denetim kaydında yürütücü bot (veya uygulama ID'si) olduğu için bu kayıtlar atlanır, botun kendi mesajları ve Anonymous webhook mesajları spam/reklam izlemesine takılmaz. Kendi Discord hesabınla toplu işlem yapacaksan hesabını **güvenli liste**ye ekle
 - **Yedek:** rol ve kanal listesinin anlık görüntüsü alınır, panelde ve `/guard durum` içinde gösterilir
 - Hem `/guard` slash komutlarıyla hem panelden yönetilir; yapılandırma veritabanında saklanır
 - Bu sürüm **kayıt ve uyarı modundadır** (gösterim): ihlaller kaydedilir ve bildirilir, otomatik ceza (ban/kick/rol alma) uygulanmaz. Ceza kuralı bir yapılandırma olarak gösterilir.
