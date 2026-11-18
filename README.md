@@ -13,6 +13,15 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - **Toplu üye yönetimi:** seçilen üyelerin tamamını (sayı sınırı yok) birlikte banlama, atma, susturma, susturmayı kaldırma, uyarma ve rol verme/alma; uzun listeler parçalara bölünüp ilerleme çubuğuyla işlenir
 - 3 uyarıya ulaşan üye otomatik 30 dk susturulur
 
+**Guard (sunucu koruması)**
+- 🛡️ Tek merkezden koruma: **aç/kapat**, 8 modül (Anti-Nuke, Anti-Raid, Kanal Koruması, Rol Koruması, Webhook Koruması, Bot Koruması, Reklam Koruması, Spam Koruması), işlem limitleri, sayım penceresi, ceza kuralı, guard kanalı, koruma rolü ve güvenli liste
+- İzleme gerçek Discord olaylarından beslenir: denetim kaydı (kanal/rol silme-oluşturma, webhook, bot ekleme, ban/kick/toplu atma), üye katılımı (toplu katılım/bot eklenmesi) ve mesaj akışı (davet linki, hızlı tekrar)
+- Sınır aşımı ve şüpheli hareketler **guard kanalına embed olarak** yazılır ve paneldeki olay akışında önem derecesiyle (YÜKSEK/ORTA/BİLGİ) listelenir
+- **Güvenli liste:** listedeki kullanıcılar limitlere takılmaz
+- **Yedek:** rol ve kanal listesinin anlık görüntüsü alınır, panelde ve `/guard durum` içinde gösterilir
+- Hem `/guard` slash komutlarıyla hem panelden yönetilir; yapılandırma veritabanında saklanır
+- Bu sürüm **kayıt ve uyarı modundadır** (gösterim): ihlaller kaydedilir ve bildirilir, otomatik ceza (ban/kick/rol alma) uygulanmaz. Ceza kuralı bir yapılandırma olarak gösterilir.
+
 **Kanal & kategori yönetimi (tekli ve toplu)**
 - Kategoriye göre gruplanmış metin / ses / duyuru kanalları + arama
 - Tekli kanal veya kategori **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
@@ -89,14 +98,31 @@ src/moderation.js  → ban/kick/mute/uyarı/kanal/rol (yetki kontrolleri burada)
 src/economy.js     → coin cüzdanı, günlük ödül, sıralama
 src/games.js       → yazı tura ve zar mantığı
 src/settings.js    → sunucu ayarları + işlem kayıtları
+src/guard.js       → guard (koruma): yapılandırma, izleme, olay akışı, /guard komutları
 src/store.js       → JSON veritabanı
 src/demo.js        → DEMO_MODE sahte verisi
 public/            → panel arayüzü (index.html, app.js, style.css)
 ```
 
-### 🎉 85 Slash Komutlu Eğlence Merkezi
+### 🛡️ Guard Komutları
 
-Bot açıldığında sunuculara toplam 85 `/` komutu kaydeder (Discord'un sunucu başına 100 uygulama komutu sınırının altında):
+`/guard` tek komut altında toplanır (yalnızca **Yönetici** yetkisi olan üyeler kullanabilir):
+
+- `/guard durum` — koruma durumu, modüller, limitler, ceza kuralı, güvenli liste, son 24 saat ve yedek bilgisi
+- `/guard aç` · `/guard kapat` — izlemeyi başlat/durdur
+- `/guard modül <modül> <açık|kapalı>` — Anti-Nuke, Anti-Raid, Kanal/Rol/Webhook/Bot/Reklam/Spam koruması
+- `/guard limit <işlem> <sayı>` — yasaklama, atma, kanal/rol silme-oluşturma, webhook, bot ekleme, toplu üye atma
+- `/guard pencere <saniye>` — limitlerin sayılacağı süre (5–600 sn)
+- `/guard ceza <tür>` — kural: yasakla / sunucudan at / rollerini al
+- `/guard kanal <kanal>` — guard kayıtlarının yazılacağı kanal
+- `/guard güvenli <ekle|çıkar|liste> [kullanıcı]` — güvenli liste yönetimi
+- `/guard olaylar` — son guard kayıtları
+- `/guard yedek` — rol ve kanal listesinin anlık görüntüsünü alır
+- `/guard test` — örnek bir guard kaydı üretir (gerçek işlem yapmaz, ceza uygulamaz); panelde **Test olayı üret** düğmesi aynı işi görür
+
+### 🎉 Eğlence Merkezi (60 slash komutu)
+
+Bot açıldığında sunuculara toplam **84 `/` komutu** kaydeder — 23 yönetim/moderasyon, 60 eğlence ve 1 guard komutu (Discord'un sunucu başına 100 uygulama komutu sınırının altında). Eğlence tarafı:
 
 - **GIF'li etkileşimler:** `/sarıl`, `/öp`, `/okşa`, `/tokat`, `/yumruk`, `/tekme`, `/gıdıkla`, `/dans`, `/el-tut`, `/göz-kırp`, `/iltifat` ve daha fazlası
 - **Eğlenceli ölçerler:** `/aşk`, `/çekicilik`, `/karizma`, `/azgınlık`, `/zekâ`, `/coolluk`, `/sadakat`, `/toksiklik`, `/komiklik` ve daha fazlası

@@ -12,6 +12,7 @@ const { Events, PermissionsBitField } = require('discord.js');
 
 const settings = require('./src/settings');
 const mod = require('./src/moderation');
+const guard = require('./src/guard');
 const eco = require('./src/economy');
 const games = require('./src/games');
 const { botState, startBot } = require('./src/bot');
@@ -1170,6 +1171,177 @@ app.get(
       logs: (db.logs[guild.id] || []).slice(0, 100),
       types: settings.LOG_TYPES
     });
+  })
+);
+
+// ---------------------------------------------------------------- GUARD (KORUMA)
+/** Guard yapılandırması yalnızca yönetici tarafından değiştirilebilir. */
+function requireGuardAdmin(actor) {
+  if (!mod.isAdmin(actor)) throw new Error('Guard ayarları için `Yönetici` yetkin olmalı.');
+}
+
+/** Güvenli listedeki ID'leri panel için isimlendirilmiş kayıtlara çevirir. */
+function guardWhitelistView(guild, cfg) {
+  return (cfg.whitelist || []).map((id) => {
+    const member = guild.members.cache.get(String(id));
+    return {
+      id: String(id),
+      name: member ? (member.user.username || member.displayName) : String(id),
+      bot: Boolean(member?.user?.bot)
+    };
+  });
+}
+
+app.get(
+  '/api/guard',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const cfg = guard.get(guild.id);
+    const textChannels = [...guild.channels.cache.values()]
+      .filter((c) => c.isTextBased && c.isTextBased())
+      .map((c) => ({ id: c.id, name: c.name }));
+    const roles = [...guild.roles.cache.values()]
+      .filter((r) => r.id !== guild.id && !r.managed)
+      .map((r) => ({ id: r.id, name: r.name }));
+    const whitelist = guardWhitelistView(guild, cfg);
+    res.json({
+      guard: { ...cfg, whitelist },
+      modules: guard.MODULES,
+      limitActions: guard.LIMIT_ACTIONS,
+      punishments: guard.PUNISHMENTS,
+      summary: guard.summary(guild.id, guild),
+      events: guard.events(guild.id, 40),
+      textChannels,
+      roles
+    });
+  })
+);
+
+app.post(
+  '/api/guard/config',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    const body = req.body || {};
+    const patch = {};
+    if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
+    if (body.logChannelId !== undefined) patch.logChannelId = body.logChannelId || null;
+    if (body.jailRoleId !== undefined) patch.jailRoleId = body.jailRoleId || null;
+    if (body.punishment !== undefined) {
+      if (!guard.PUNISHMENTS.some((p) => p.key === body.punishment)) throw new Error('Geçersiz ceza kuralı.');
+      patch.punishment = body.punishment;
+    }
+    if (body.windowSeconds !== undefined) {
+      const n = Math.floor(Number(body.windowSeconds));
+      if (!Number.isFinite(n) || n < 5 || n > 600) throw new Error('Pencere 5 ile 600 saniye arasında olmalı.');
+      patch.windowSeconds = n;
+    }
+    if (patch.enabled !== undefined && patch.enabled !== guard.get(guild.id).enabled) {
+      guard.setEnabled(guild.id, patch.enabled, actor.user.username);
+      delete patch.enabled;
+    }
+    const updated = guard.update(guild.id, patch);
+    settings.log(guild.id, 'guard', `${actor.user.username} guard ayarlarını güncelledi`);
+    res.json({ ok: true, guard: updated, summary: guard.summary(guild.id, guild) });
+  })
+);
+
+app.post(
+  '/api/guard/module',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    const result = guard.setModule(guild.id, String(req.body?.key || ''), Boolean(req.body?.enabled));
+    if (!result.ok) throw new Error(result.error);
+    settings.log(guild.id, 'guard', `${actor.user.username} ${result.label} modülünü ${result.enabled ? 'açtı' : 'kapattı'}`);
+    const cfg = guard.get(guild.id);
+    res.json({ ok: true, guard: { ...cfg, whitelist: guardWhitelistView(guild, cfg) }, summary: guard.summary(guild.id, guild) });
+  })
+);
+
+app.post(
+  '/api/guard/limit',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    const result = guard.setLimit(guild.id, String(req.body?.key || ''), req.body?.value);
+    if (!result.ok) throw new Error(result.error);
+    settings.log(guild.id, 'guard', `${actor.user.username} ${result.label} limitini ${result.limit} yaptı`);
+    const cfg = guard.get(guild.id);
+    res.json({ ok: true, guard: { ...cfg, whitelist: guardWhitelistView(guild, cfg) }, summary: guard.summary(guild.id, guild) });
+  })
+);
+
+app.post(
+  '/api/guard/whitelist',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    const userId = String(req.body?.userId || '').replace(/[<@!>]/g, '');
+    if (!/^\d{5,25}$/.test(userId)) throw new Error('Geçerli bir kullanıcı ID gir.');
+    const action = req.body?.action === 'remove' ? 'remove' : 'add';
+    const result = action === 'add' ? guard.addWhitelist(guild.id, userId) : guard.removeWhitelist(guild.id, userId);
+    if (!result.ok) throw new Error(result.error);
+    settings.log(guild.id, 'guard', `${actor.user.username} güvenli listeye kullanıcı ${action === 'add' ? 'ekledi' : 'listeden çıkardı'}: ${userId}`);
+    const cfg = guard.get(guild.id);
+    res.json({ ok: true, guard: { ...cfg, whitelist: guardWhitelistView(guild, cfg) }, summary: guard.summary(guild.id, guild) });
+  })
+);
+
+app.get(
+  '/api/guard/events',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    res.json({ events: guard.events(guild.id, 60), summary: guard.summary(guild.id, guild) });
+  })
+);
+
+app.post(
+  '/api/guard/events/clear',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    guard.clearEvents(guild.id);
+    settings.log(guild.id, 'guard', `${actor.user.username} guard olay akışını temizledi`);
+    res.json({ ok: true, events: [] });
+  })
+);
+
+app.post(
+  '/api/guard/backup',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    const result = guard.takeBackup(guild);
+    settings.log(guild.id, 'guard', `${actor.user.username} yedek aldı (${result.roles} rol, ${result.channels} kanal)`);
+    res.json({ ok: true, ...result, summary: guard.summary(guild.id, guild) });
+  })
+);
+
+app.post(
+  '/api/guard/test',
+  requireAuth,
+  wrap(async (req, res) => {
+    const guild = getGuild(req.session.guildId);
+    const actor = await actorOf(req, guild);
+    requireGuardAdmin(actor);
+    const event = guard.runTest(guild, actor.user.username);
+    settings.log(guild.id, 'guard', `${actor.user.username} guard testi çalıştırdı`);
+    res.json({ ok: true, event, events: guard.events(guild.id, 60), summary: guard.summary(guild.id, guild) });
   })
 );
 
