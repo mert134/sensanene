@@ -7,7 +7,7 @@ const express = require('express');
 const games = require('./games');
 const eco = require('./economy');
 const guard = require('./guard');
-const { db } = require('./store');
+const { db, save } = require('./store');
 
 const GUILD = { id: 'demo-guild', name: 'Demo Sunucu', ownerId: 'u1' };
 
@@ -504,6 +504,8 @@ function router() {
       limitActions: guard.LIMIT_ACTIONS,
       punishments: guard.PUNISHMENTS,
       summary: guard.summary(GUILD.id, guild),
+      admin: guard.adminSummary(GUILD.id, guild),
+      statusLabels: guard.STATUS_LABEL,
       events: guard.events(GUILD.id, 40),
       textChannels: channels.filter((c) => ['text', 'announcement'].includes(c.type)).map((c) => ({ id: c.id, name: c.name })),
       roles: roles.map((r2) => ({ id: r2.id, name: r2.name }))
@@ -584,6 +586,362 @@ function router() {
     pushLog('guard', 'Guard testi çalıştırıldı — örnek kayıt üretildi');
     res.json({ ok: true, event, events: guard.events(GUILD.id, 60), summary: guard.summary(GUILD.id, guardGuild()) });
   });
+
+  // ------------------------------------------------- GUARD MERKEZİ (DEMO)
+  // Operatör katmanının demo karşılığı: 4 örnek sunucu, whitelist/blacklist,
+  // sessiz mod ve otomatik pasifleştirme panelde gerçek veriyle denenir.
+  const DEMO_GUILDS = [
+    { id: GUILD.id, name: 'Demo Sunucu', memberCount: 1284, addedDaysAgo: 96 },
+    { id: '913555340000000001', name: 'Gece Kulübü TR', memberCount: 8420, addedDaysAgo: 41 },
+    { id: '913555340000000002', name: 'Anime Sohbet', memberCount: 15330, addedDaysAgo: 0 },
+    { id: '913555340000000003', name: 'Oyun Dünyası', memberCount: 612, addedDaysAgo: 12 }
+  ];
+
+  const demoGuildMeta = (guildId) => DEMO_GUILDS.find((g) => g.id === String(guildId)) || null;
+
+  function demoGuildData(guildId) {
+    const id = String(guildId);
+    if (id === GUILD.id) return { channels, roles, members };
+    const short = id.slice(-2);
+    return {
+      channels: [
+        { id: `g${short}-c1`, name: 'genel', type: 'text' },
+        { id: `g${short}-c2`, name: 'guard-log', type: 'text' },
+        { id: `g${short}-c3`, name: 'duyurular', type: 'announcement' }
+      ],
+      roles: [
+        { id: `g${short}-r1`, name: 'Kurucu', position: 9, managed: false },
+        { id: `g${short}-r2`, name: 'Yetkili', position: 6, managed: false },
+        { id: `g${short}-r3`, name: 'Üye', position: 2, managed: false }
+      ],
+      members: [
+        { id: `g${short}-u1`, username: 'kurucu', bot: false },
+        { id: `g${short}-u2`, username: 'yetkili_1', bot: false }
+      ]
+    };
+  }
+
+  function demoGuardGuild(guildId) {
+    const id = String(guildId);
+    const meta = demoGuildMeta(id);
+    const data = demoGuildData(id);
+    return {
+      id,
+      name: meta ? meta.name : id,
+      client: { user: { id: 'bot1' } },
+      channels: {
+        cache: new Map(data.channels.map((c) => [c.id, {
+          id: c.id,
+          name: c.name,
+          type: DEMO_TYPE_ID[c.type] ?? 0,
+          parentId: null,
+          position: 1,
+          topic: null,
+          isTextBased: () => ['text', 'announcement'].includes(c.type),
+          send: async () => ({ id: 'demo-msg' })
+        }]))
+      },
+      roles: { cache: new Map(data.roles.map((r) => [r.id, { id: r.id, name: r.name, color: 0, position: r.position, managed: Boolean(r.managed), permissions: { bitfield: 0 } }])) },
+      members: { cache: new Map(data.members.map((m) => [m.id, { id: m.id, user: m }])) }
+    };
+  }
+
+  function demoWhitelistView(guildId, cfg) {
+    const data = demoGuildData(guildId);
+    const pool = guildId === GUILD.id ? members : data.members;
+    return (cfg.whitelist || []).map((id) => {
+      const m = pool.find((x) => x.id === String(id));
+      return { id: String(id), name: m ? m.username : String(id), bot: Boolean(m?.bot) };
+    });
+  }
+
+  let centerSeeded = false;
+
+  function seedGuardCenter() {
+    if (centerSeeded) return;
+    centerSeeded = true;
+    const now = Date.now();
+    const day = 86400000;
+    const roster = {};
+    DEMO_GUILDS.forEach((g) => {
+      roster[g.id] = { name: g.name, memberCount: g.memberCount, addedAt: now - g.addedDaysAgo * day, lastSeen: now };
+    });
+    guard.savePolicy({
+      autoBlockNewGuilds: true,
+      allowed: [GUILD.id, '913555340000000003'],
+      blocked: ['913555340000000001'],
+      notes: {
+        [GUILD.id]: { text: 'Ana sunucu — koruma tam yetkiyle çalışıyor.', at: now - 40 * day },
+        '913555340000000001': { text: 'Guard’ı kötüye kullanıyor: yetkilileri toplu banlıyor. Sahibi iki kez uyarıldı.', at: now - 3 * day },
+        '913555340000000003': { text: 'Whitelist’te, sahibi korumayı kendi kapattı.', at: now - 9 * day }
+      },
+      roster
+    });
+
+    // 1) Ana demo sunucusu: aktif
+    guard.update(GUILD.id, { addedAt: now - 96 * day, approvedAt: now - 95 * day, approvedBy: 'kaptan', silent: false });
+
+    // 2) Blacklist: sessiz mod (sunucuya normal görünüyor)
+    guard.update('913555340000000001', {
+      enabled: true,
+      logChannelId: 'g01-c2',
+      addedAt: now - 41 * day,
+      approvedAt: now - 40 * day,
+      approvedBy: 'kaptan',
+      silent: true,
+      silentAt: now - 3 * day,
+      silentReason: 'Kötüye kullanım: yetkililere toplu ban',
+      whitelist: ['g01-u1']
+    });
+    db.guardEvents['913555340000000001'] = [
+      { id: 's1-1', at: now - 3 * day - 3600000, type: 'violation', severity: 'high', title: 'Yasaklama sınırı aşıldı', detail: 'Hedef: yetkili_1 · 6 işlem / 60 sn', module: 'antiNuke', action: 'ban', actor: { id: 'g01-u2', name: 'yetkili_1' }, count: 6, limit: 3 },
+      { id: 's1-2', at: now - 5 * day, type: 'violation', severity: 'medium', title: 'Rol silme sınırı aşıldı', detail: 'Hedef: Moderatör · 3 işlem / 60 sn', module: 'roleGuard', action: 'roleDelete', actor: { id: 'g01-u2', name: 'yetkili_1' }, count: 3, limit: 2 },
+      { id: 's1-3', at: now - 9 * day, type: 'info', severity: 'low', title: 'Webhook oluşturma kaydedildi', detail: 'yetkili_1 · #duyurular', module: 'webhookGuard', action: 'webhook', actor: { id: 'g01-u2', name: 'yetkili_1' }, count: 1, limit: 3 }
+    ];
+
+    // 3) Yeni eklenen sunucu: otomatik pasif, onay bekliyor
+    guard.update('913555340000000002', {
+      enabled: true,
+      logChannelId: 'g02-c2',
+      addedAt: now - 3600000,
+      silent: true,
+      silentAt: now - 3600000,
+      silentReason: 'Yeni sunucu: operatör onayı bekleniyor'
+    });
+
+    // 4) Whitelist’te ama sahibi kapatmış
+    guard.update('913555340000000003', {
+      enabled: false,
+      logChannelId: 'g03-c2',
+      addedAt: now - 12 * day,
+      approvedAt: now - 11 * day,
+      approvedBy: 'kaptan',
+      silent: false,
+      windowSeconds: 120,
+      punishment: 'kick'
+    });
+    db.guardEvents['913555340000000003'] = [
+      { id: 's3-1', at: now - 11 * day, type: 'action', severity: 'low', title: 'Koruma kapatıldı', detail: 'İşlemi yapan: kurucu', module: null, action: null, actor: null, count: null, limit: null }
+    ];
+
+    db.guardOps = [
+      { id: 'op1', at: now - 3 * day, guildId: '913555340000000001', guildName: 'Gece Kulübü TR', action: 'revoke', detail: 'Kötüye kullanım: yetkililere toplu ban', actor: 'kaptan' },
+      { id: 'op2', at: now - 3600000, guildId: '913555340000000002', guildName: 'Anime Sohbet', action: 'auto-pending', detail: 'Yeni sunucu eklendi — koruma otomatik pasif başladı (whitelist onayı bekliyor)', actor: 'bot' },
+      { id: 'op3', at: now - 9 * day, guildId: '913555340000000003', guildName: 'Oyun Dünyası', action: 'approve', detail: 'Whitelist’e alındı — koruma çalışıyor', actor: 'kaptan' },
+      { id: 'op4', at: now - 95 * day, guildId: GUILD.id, guildName: 'Demo Sunucu', action: 'approve', detail: 'Whitelist’e alındı — koruma çalışıyor', actor: 'kaptan' }
+    ];
+    save();
+  }
+
+  function demoCenterRows() {
+    const rows = guard.guildStates(null).map((r) => {
+      const meta = demoGuildMeta(r.id);
+      return meta ? { ...r, name: meta.name, memberCount: meta.memberCount, online: true } : r;
+    });
+    const order = { pending: 0, silent: 1, active: 2, idle: 3 };
+    rows.sort((a, b) => (order[a.status] - order[b.status]) || String(a.name).localeCompare(String(b.name), 'tr'));
+    return rows;
+  }
+
+  function demoCenterPayload() {
+    seedGuardCenter();
+    const rows = demoCenterRows();
+    return {
+      ok: true,
+      policy: guard.policy(),
+      statusLabels: guard.STATUS_LABEL,
+      stats: guard.policyStats(rows),
+      guilds: rows,
+      ops: guard.ops(80),
+      modules: guard.MODULES,
+      limitActions: guard.LIMIT_ACTIONS,
+      punishments: guard.PUNISHMENTS,
+      botReady: true
+    };
+  }
+
+  const demoGuildId = (value) => {
+    const id = String(value || '').trim();
+    if (!/^[\w-]{3,32}$/.test(id)) throw Object.assign(new Error('Geçerli bir sunucu ID gir.'), { status: 400 });
+    return id;
+  };
+
+  const demoGuardError = (res, err) => res.status(err.status || 400).json({ error: err.message });
+
+  r.get('/api/guard/center', (req, res) => res.json(demoCenterPayload()));
+
+  r.post('/api/guard/center/sync', (req, res) => {
+    seedGuardCenter();
+    const rows = demoCenterRows();
+    rows.forEach((row) => guard.syncGuild({ id: row.id, name: row.name, memberCount: row.memberCount }));
+    pushLog('guard', `Guard merkezi: ${rows.length} sunucu senkronize edildi`);
+    res.json({ ...demoCenterPayload(), synced: rows.length });
+  });
+
+  r.post('/api/guard/center/policy', (req, res) => {
+    seedGuardCenter();
+    if (req.body?.autoBlockNewGuilds === undefined) return demoGuardError(res, new Error('autoBlockNewGuilds gerekli.'));
+    guard.setAutoBlock(Boolean(req.body.autoBlockNewGuilds), 'kaptan');
+    pushLog('guard', `Yeni sunucuları otomatik pasifleştirme ${req.body.autoBlockNewGuilds ? 'açıldı' : 'kapatıldı'}`);
+    res.json(demoCenterPayload());
+  });
+
+  r.post('/api/guard/center/guild', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const action = String(req.body?.action || '');
+    const reason = req.body?.reason ? String(req.body.reason).slice(0, 200) : null;
+    const meta = demoGuildMeta(guildId);
+    const name = meta ? meta.name : guildId;
+    let result = null;
+    if (action === 'approve') {
+      result = guard.approveGuild(guildId, { actor: 'kaptan', note: req.body?.note || null });
+      pushLog('guard', `${name} whitelist'e alındı — koruma çalışıyor`);
+    } else if (action === 'revoke') {
+      result = guard.revokeGuild(guildId, { actor: 'kaptan', reason });
+      pushLog('guard', `${name} whitelist'ten çıkarıldı ve sessize alındı${reason ? ` (${reason})` : ''}`);
+    } else if (action === 'silent') {
+      result = guard.setSilent(guildId, true, { actor: 'kaptan', reason });
+      pushLog('guard', `${name} sessize alındı — sunucuya normal görünüyor`);
+    } else if (action === 'unsilent') {
+      result = guard.setSilent(guildId, false, { actor: 'kaptan' });
+      pushLog('guard', `${name} sessiz moddan çıkarıldı`);
+    } else if (action === 'enable' || action === 'disable') {
+      guard.setEnabled(guildId, action === 'enable', 'kaptan');
+      pushLog('guard', `${name} için görünür koruma ${action === 'enable' ? 'açıldı' : 'kapatıldı'}`);
+    } else {
+      return demoGuardError(res, new Error('Bilinmeyen işlem. (approve, revoke, silent, unsilent, enable, disable)'));
+    }
+    const rows = demoCenterRows();
+    res.json({ ...demoCenterPayload(), changed: rows.find((x) => x.id === guildId) || null, result });
+  });
+
+  r.get('/api/guard/center/guild/detail', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.query?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const cfg = guard.get(guildId);
+    const data = demoGuildData(guildId);
+    const g = demoGuardGuild(guildId);
+    res.json({
+      ok: true,
+      guild: demoCenterRows().find((x) => x.id === guildId) || null,
+      admin: guard.adminSummary(guildId, g),
+      guard: { ...cfg, whitelist: demoWhitelistView(guildId, cfg) },
+      modules: guard.MODULES,
+      limitActions: guard.LIMIT_ACTIONS,
+      punishments: guard.PUNISHMENTS,
+      events: guard.events(guildId, 60),
+      ops: guard.ops(200).filter((o) => o.guildId === guildId),
+      textChannels: data.channels.filter((c) => ['text', 'announcement'].includes(c.type)).map((c) => ({ id: c.id, name: c.name })),
+      roles: data.roles.map((x) => ({ id: x.id, name: x.name })),
+      online: true
+    });
+  });
+
+  r.post('/api/guard/center/config', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const body = req.body || {};
+    const patch = {};
+    if (body.logChannelId !== undefined) patch.logChannelId = body.logChannelId || null;
+    if (body.jailRoleId !== undefined) patch.jailRoleId = body.jailRoleId || null;
+    if (body.punishment !== undefined) {
+      if (!guard.PUNISHMENTS.some((p) => p.key === body.punishment)) return demoGuardError(res, new Error('Geçersiz ceza kuralı.'));
+      patch.punishment = body.punishment;
+    }
+    if (body.windowSeconds !== undefined) {
+      const n = Math.floor(Number(body.windowSeconds));
+      if (!Number.isFinite(n) || n < 5 || n > 600) return demoGuardError(res, new Error('Pencere 5 ile 600 saniye arasında olmalı.'));
+      patch.windowSeconds = n;
+    }
+    if (body.modules && typeof body.modules === 'object') {
+      const modules = {};
+      guard.MODULES.forEach((m) => { if (body.modules[m.key] !== undefined) modules[m.key] = Boolean(body.modules[m.key]); });
+      if (Object.keys(modules).length) patch.modules = modules;
+    }
+    if (body.limits && typeof body.limits === 'object') {
+      const limits = {};
+      for (const a of guard.LIMIT_ACTIONS) {
+        if (body.limits[a.key] === undefined) continue;
+        const n = Math.floor(Number(body.limits[a.key]));
+        if (!Number.isFinite(n) || n < 1 || n > 100) return demoGuardError(res, new Error(`${a.label} limiti 1 ile 100 arasında olmalı.`));
+        limits[a.key] = n;
+      }
+      if (Object.keys(limits).length) patch.limits = limits;
+    }
+    if (Array.isArray(body.whitelist)) {
+      patch.whitelist = body.whitelist.map((x) => String(x).replace(/[<@!>]/g, '')).filter((x) => /^[\w-]{3,32}$/.test(x));
+    }
+    if (body.enabled !== undefined && Boolean(body.enabled) !== guard.get(guildId).enabled) guard.setEnabled(guildId, Boolean(body.enabled), 'kaptan');
+    if (Object.keys(patch).length) guard.update(guildId, patch);
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'config', detail: `Ayarlar güncellendi: ${Object.keys(patch).join(', ') || 'enabled'}`, actor: 'kaptan' });
+    pushLog('guard', `${demoGuildMeta(guildId)?.name || guildId} guard ayarları merkezden güncellendi`);
+    const cfg = guard.get(guildId);
+    res.json({
+      ok: true,
+      guild: demoCenterRows().find((x) => x.id === guildId) || null,
+      admin: guard.adminSummary(guildId, demoGuardGuild(guildId)),
+      guard: { ...cfg, whitelist: demoWhitelistView(guildId, cfg) }
+    });
+  });
+
+  r.post('/api/guard/center/note', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const result = guard.setNote(guildId, req.body?.text || '', 'kaptan');
+    res.json({ ok: true, note: result.note, guild: demoCenterRows().find((x) => x.id === guildId) || null, ops: guard.ops(80) });
+  });
+
+  r.get('/api/guard/center/events', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.query?.guildId); } catch (err) { return demoGuardError(res, err); }
+    res.json({ ok: true, guildId, events: guard.events(guildId, 80), admin: guard.adminSummary(guildId, demoGuardGuild(guildId)) });
+  });
+
+  r.post('/api/guard/center/events/clear', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    guard.clearEvents(guildId);
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'events-clear', detail: 'Olay akışı temizlendi', actor: 'kaptan' });
+    res.json({ ok: true, guildId, events: [] });
+  });
+
+  r.post('/api/guard/center/test', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const event = guard.runTest(demoGuardGuild(guildId), 'kaptan');
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'test', detail: 'Örnek guard kaydı üretildi', actor: 'kaptan' });
+    res.json({ ok: true, event, events: guard.events(guildId, 80) });
+  });
+
+  r.post('/api/guard/center/backup', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const result = guard.takeBackup(demoGuardGuild(guildId));
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'backup', detail: `Yedek alındı: ${result.roles} rol, ${result.channels} kanal`, actor: 'kaptan' });
+    pushLog('guard', `${demoGuildMeta(guildId)?.name || guildId} yedeği alındı (${result.roles} rol, ${result.channels} kanal)`);
+    res.json({ ok: true, ...result, guild: demoCenterRows().find((x) => x.id === guildId) || null });
+  });
+
+  r.get('/api/guard/center/ops', (req, res) => {
+    seedGuardCenter();
+    res.json({ ok: true, ops: guard.ops(200) });
+  });
+
+  r.post('/api/guard/center/ops/clear', (req, res) => {
+    guard.clearOps();
+    pushLog('guard', 'Operatör işlem kayıtları temizlendi');
+    res.json({ ok: true, ops: [] });
+  });
+
 
   r.get('/api/bot/invite', (req, res) =>
     res.json({ url: 'https://discord.com/oauth2/authorize?client_id=DEMO&permissions=8&scope=bot' })

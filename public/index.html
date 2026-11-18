@@ -61,6 +61,7 @@
       <button class="nav-item" data-section="channels"><span class="ico" data-icon="hash"></span> Kanallar</button>
       <button class="nav-item" data-section="roles"><span class="ico" data-icon="tag"></span> Roller</button>
       <button class="nav-item" data-section="guard"><span class="ico" data-icon="shield"></span> Guard</button>
+      <button class="nav-item" data-section="guard-center"><span class="ico" data-icon="grid"></span> Guard Merkezi</button>
       <button class="nav-item" data-section="games"><span class="ico" data-icon="dice"></span> Oyunlar</button>
       <button class="nav-item" data-section="settings"><span class="ico" data-icon="settings"></span> Ayarlar</button>
       <button class="nav-item" data-section="logs"><span class="ico" data-icon="list"></span> Kayıtlar</button>
@@ -277,6 +278,38 @@
             <button class="btn btn-sm btn-danger" onclick="clearGuardEvents()">Akışı temizle</button>
           </div>
           <div id="guardEvents"><div class="empty">Yükleniyor…</div></div>
+        </div>
+      </section>
+
+      <!-- ---------- GUARD MERKEZİ ---------- -->
+      <section class="section" id="sec-guard-center">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="loadGuardCenter()" data-icon-label="refresh:Yenile"></button>
+          <button class="btn" onclick="syncGuardCenter()" data-icon-label="shield:Sunucuları senkronize et"></button>
+          <label class="gc-inline-toggle" for="gcAutoBlock"><input type="checkbox" id="gcAutoBlock" onchange="toggleAutoBlock()" /> Yeni eklenen sunucular otomatik pasif başlasın</label>
+          <span class="badge" id="gcBadge">yükleniyor</span>
+        </div>
+
+        <div class="gc-stats" id="gcStats"></div>
+
+        <div class="card">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-9.6V5.2L12 2.2 4 5.2v7.2C4 18.4 12 22 12 22z"/><path d="M9 12l2 2 4-4"/></svg> Sunucular <span class="badge" id="gcGuildCount">0</span></h3>
+          <div class="toolbar" style="padding:0;margin-bottom:10px">
+            <input class="input" id="gcSearch" placeholder="Sunucu ara (isim veya ID)" style="max-width:260px" oninput="renderGuardCenter()" />
+            <div class="gc-filter" id="gcFilter"></div>
+          </div>
+          <div class="hint" style="margin-bottom:10px">Koruma yalnızca <b>whitelist</b>'teki sunucularda çalışır. Sessize alınan (<b>blacklist</b>) sunucularda izleme durur; buna rağmen <b>/guard durum</b> ve diğer komutlar normal görünmeye devam eder, yani o sunucu korumanın kapalı olduğunu anlayamaz. Bu bilgiler yalnızca burada (panelde) görünür.</div>
+          <div id="gcGuilds"><div class="empty">Yükleniyor…</div></div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Operatör işlemleri <span class="badge" id="gcOpsCount">0</span></h3>
+          <div class="toolbar" style="padding:0;margin-bottom:6px">
+            <button class="btn btn-sm" onclick="loadGuardCenter()" data-icon-label="refresh:Yenile"></button>
+            <button class="btn btn-sm btn-danger" onclick="clearGuardOps()">Kayıtları temizle</button>
+          </div>
+          <div class="hint" style="margin-bottom:8px">Bu kayıtlar yalnızca panelde görünür; sunucuların guard olay akışına yazılmaz.</div>
+          <div id="gcOps"><div class="empty">Yükleniyor…</div></div>
         </div>
       </section>
 

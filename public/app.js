@@ -435,6 +435,7 @@ const TITLES = {
   channels: ['Kanallar', 'Oluştur, düzenle, sil'],
   roles: ['Roller', 'Rol oluştur, ver, al'],
   guard: ['Guard', 'Sunucu koruması: modüller, limitler, güvenli liste, olay akışı'],
+  'guard-center': ['Guard Merkezi', 'Tüm sunucular: whitelist, blacklist, sessiz mod, otomatik pasifleştirme'],
   games: ['Oyunlar', 'Yazı tura, zar ve ekonomi'],
   settings: ['Ayarlar', 'Bot davranışını yapılandır'],
   logs: ['Kayıtlar', 'Son 100 işlem']
@@ -455,6 +456,7 @@ function navigate(section) {
   if (section === 'channels') { loadChannels(); loadBans(); }
   if (section === 'roles') loadRoles();
   if (section === 'guard') loadGuard();
+  if (section === 'guard-center') loadGuardCenter();
   if (section === 'games') loadGame();
   if (section === 'settings') loadSettings();
   if (section === 'logs') loadLogs();
@@ -2288,9 +2290,19 @@ function renderGuard() {
   $('#guardSummary').textContent = cfg.enabled
     ? `${summary.modulesActive}/${summary.modulesTotal} modül izliyor · pencere ${cfg.windowSeconds} sn · son 24 saatte ${summary.violations24h} ihlal kaydı · ceza kuralı: ${summary.punishmentLabel}${backupText}`
     : `Koruma kapalı. Açtığında ${summary.modulesTotal} modül izlemeye başlar, kayıtlar guard kanalına yazılır.${backupText}`;
-  $('#guardNote').textContent = summary.simulation
-    ? 'Bu sürüm kayıt ve uyarı modunda çalışır: ihlaller guard kanalına yazılır ve akışta listelenir, otomatik ceza uygulanmaz.'
+  const admin = guardData.admin || null;
+  const truth = admin
+    ? (admin.status === 'silent'
+      ? 'Bu sunucu SESSİZDE (blacklist): izleme çalışmıyor, Discord tarafında her şey normal görünüyor. '
+      : admin.status === 'pending'
+        ? "Bu sunucu whitelist'te değil: izleme çalışmıyor (onay bekliyor). Guard Merkezi'nden whitelist'e alabilirsin. "
+        : admin.status === 'idle'
+          ? "Whitelist'te ama koruma kapalı: açıldığında izleme gerçekten çalışır. "
+          : 'Koruma bu sunucuda gerçekten çalışıyor (whitelist + açık). ')
     : '';
+  $('#guardNote').textContent = truth + (summary.simulation
+    ? 'Bu sürüm kayıt ve uyarı modunda çalışır: ihlaller guard kanalına yazılır ve akışta listelenir, otomatik ceza uygulanmaz.'
+    : '');
 
   fillGuardSelect('#guardLogChannel', guardData.textChannels, cfg.logChannelId, '— seçilmedi —');
   fillGuardSelect('#guardJailRole', guardData.roles, cfg.jailRoleId, '— kapalı —');
@@ -2513,6 +2525,489 @@ async function takeGuardBackup() {
     toast(err.message, 'err');
   }
 }
+
+/* ==================== GUARD MERKEZİ (OPERATÖR KATMANI) ====================
+   Tüm sunucuların koruma durumu buradan yönetilir: whitelist (koruma gerçekten
+   çalışsın), blacklist / sessiz mod (izleme dursun ama sunucuya normal görünsün)
+   ve otomatik pasifleştirme. Bu bilgiler Discord tarafına sızmaz.            */
+let gcData = null;
+let gcFilter = 'all';
+const gcOpen = new Set();
+const gcDetail = new Map();   // guildId -> detay verisi
+const gcDraft = new Map();    // guildId -> düzenlenen güvenli liste (id dizisi)
+
+const GC_STATUS = {
+  active: { label: 'Koruma çalışıyor', badge: 'green', truth: 'on' },
+  idle: { label: 'Sunucu kapatmış', badge: 'red', truth: 'idle' },
+  silent: { label: 'Sessizde (blacklist)', badge: 'red', truth: 'off' },
+  pending: { label: 'Onay bekliyor', badge: '', truth: 'wait' }
+};
+const GC_FILTERS = [
+  { key: 'all', label: 'Tümü' },
+  { key: 'active', label: 'Çalışıyor' },
+  { key: 'silent', label: 'Sessizde' },
+  { key: 'pending', label: 'Onay bekliyor' },
+  { key: 'idle', label: 'Sunucu kapatmış' }
+];
+
+async function loadGuardCenter() {
+  try {
+    gcData = await api('/api/guard/center');
+    renderGuardCenter();
+  } catch (err) {
+    const box = $('#gcGuilds');
+    if (box) box.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    toast(err.message, 'err');
+  }
+}
+
+async function syncGuardCenter() {
+  try {
+    gcData = await api('/api/guard/center/sync', { method: 'POST', body: {} });
+    renderGuardCenter();
+    toast(`${gcData.synced ?? gcData.guilds.length} sunucu senkronize edildi`);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function toggleAutoBlock() {
+  const node = $('#gcAutoBlock');
+  try {
+    gcData = await api('/api/guard/center/policy', { method: 'POST', body: { autoBlockNewGuilds: node.checked } });
+    renderGuardCenter();
+    toast(node.checked ? 'Yeni sunucular otomatik pasif başlayacak' : 'Yeni sunucular otomatik pasifleştirilmeyecek');
+  } catch (err) {
+    node.checked = !node.checked;
+    toast(err.message, 'err');
+  }
+}
+
+function gcTruthText(g) {
+  if (g.status === 'silent') {
+    return `Koruma bu sunucuda ÇALIŞMIYOR (sessiz mod). Discord tarafında her şey normal görünüyor: /guard durum "koruma aktif" der, komutlar çalışır. Sebep: ${g.silentReason || 'belirtilmedi'}`;
+  }
+  if (g.status === 'pending') {
+    return 'Whitelist\'te değil — koruma çalışmıyor. Sunucu yeni eklendiği için otomatik pasif başladı; uygun görürsen "Whitelist\'e al" ile aç.';
+  }
+  if (g.status === 'idle') {
+    return 'Whitelist\'te ama sunucu korumayı kendisi kapatmış. Açtığında izleme gerçekten çalışır.';
+  }
+  return `Koruma gerçekten çalışıyor: ${g.modulesActive}/${g.modulesTotal} modül izliyor, pencere ${g.windowSeconds} sn, ceza kuralı ${g.punishmentLabel}.`;
+}
+
+function renderGuardCenter() {
+  if (!gcData) return;
+  const stats = gcData.stats;
+  $('#gcAutoBlock').checked = Boolean(gcData.policy.autoBlockNewGuilds);
+  const badge = $('#gcBadge');
+  badge.textContent = `${stats.active}/${stats.total} sunucuda koruma çalışıyor`;
+  badge.className = `badge ${stats.active > 0 ? 'green' : 'red'}`;
+
+  const statBox = $('#gcStats');
+  statBox.innerHTML = '';
+  const cards = [
+    { cls: '', value: stats.total, label: 'Toplam sunucu' },
+    { cls: 'ok', value: stats.active, label: 'Koruma çalışıyor (whitelist)' },
+    { cls: 'off', value: stats.silent, label: 'Sessizde (blacklist)' },
+    { cls: 'wait', value: stats.pending, label: 'Onay bekliyor' }
+  ];
+  cards.forEach((c) => statBox.append(el('div', { class: `gc-stat ${c.cls}` }, [el('b', { text: String(c.value) }), el('span', { text: c.label })])));
+
+  const filterBox = $('#gcFilter');
+  filterBox.innerHTML = '';
+  GC_FILTERS.forEach((f) => {
+    const count = f.key === 'all' ? stats.total : stats[f.key] ?? 0;
+    filterBox.append(el('button', {
+      class: `chip${gcFilter === f.key ? ' sel' : ''}`,
+      onclick: () => { gcFilter = f.key; renderGuardCenter(); }
+    }, [el('span', { text: `${f.label} (${count})` })]));
+  });
+
+  const query = ($('#gcSearch')?.value || '').trim().toLocaleLowerCase('tr');
+  const list = gcData.guilds.filter((g) => (gcFilter === 'all' || g.status === gcFilter))
+    .filter((g) => !query || String(g.name).toLocaleLowerCase('tr').includes(query) || String(g.id).includes(query));
+
+  const listBox = $('#gcGuilds');
+  listBox.innerHTML = '';
+  $('#gcGuildCount').textContent = `${list.length}/${gcData.guilds.length}`;
+  if (!list.length) {
+    listBox.innerHTML = '<div class="empty">Bu filtrede sunucu yok.</div>';
+  } else {
+    list.forEach((g) => listBox.append(gcRow(g)));
+  }
+
+  renderGuardOps();
+}
+
+function gcRow(g) {
+  const st = GC_STATUS[g.status] || GC_STATUS.pending;
+  const isOpen = gcOpen.has(g.id);
+  const row = el('div', { class: `gc-row${isOpen ? ' open' : ''}`, 'data-guild': g.id });
+
+  const actions = el('div', { class: 'gc-actions' });
+  if (g.status !== 'active' && g.status !== 'idle') {
+    actions.append(el('button', { class: 'btn btn-sm btn-primary', text: "Whitelist'e al", onclick: () => gcAction(g, 'approve') }));
+  }
+  if (g.status === 'silent') {
+    actions.append(el('button', { class: 'btn btn-sm', text: 'Sessizden çıkar', onclick: () => gcAction(g, 'unsilent') }));
+  }
+  if (g.status === 'active' || g.status === 'idle') {
+    actions.append(el('button', { class: 'btn btn-sm btn-danger', text: "Blacklist'e al (sessiz)", onclick: () => gcAction(g, 'revoke') }));
+    actions.append(el('button', {
+      class: 'btn btn-sm',
+      text: g.enabled ? 'Görünür korumayı kapat' : 'Görünür korumayı aç',
+      onclick: () => gcAction(g, g.enabled ? 'disable' : 'enable')
+    }));
+  }
+  actions.append(el('button', { class: 'btn btn-sm', text: isOpen ? 'Kapat' : 'Ayarlar & olaylar', onclick: () => gcToggleDetail(g.id) }));
+
+  const meta = [
+    `${g.memberCount != null ? `${g.memberCount} üye` : 'üye sayısı bilinmiyor'}`,
+    g.online ? 'bot önbelleğinde' : 'bot önbelleğinde değil',
+    g.addedAt ? `eklendi: ${timeAgo(g.addedAt)}` : null,
+    g.approvedAt ? `whitelist: ${timeAgo(g.approvedAt)}${g.approvedBy ? ` (${g.approvedBy})` : ''}` : null,
+    `${g.modulesActive}/${g.modulesTotal} modül · pencere ${g.windowSeconds} sn · ceza ${g.punishmentLabel}`,
+    `${g.eventCount} olay kaydı · son 24 saatte ${g.violations24h} ihlal`,
+    g.backup ? `yedek: ${g.backup.roles} rol, ${g.backup.channels} kanal (${timeAgo(g.backup.at)})` : 'yedek yok'
+  ].filter(Boolean).join(' · ');
+
+  const head = el('div', { class: 'gc-head' }, [
+    el('div', { style: 'min-width:220px;flex:1 1 260px' }, [
+      el('div', { class: 'gc-title' }, [
+        iconEl('shield', 'icon icon-sm'),
+        el('span', { text: g.name }),
+        el('span', { class: `badge ${st.badge}`, text: st.label }),
+        g.enabled ? el('span', { class: 'tag bot', text: 'durum: açık görünüyor' }) : el('span', { class: 'tag muted', text: 'durum: kapalı görünüyor' })
+      ]),
+      el('div', { class: 'gc-id', text: g.id }),
+      el('div', { class: 'gc-meta', text: meta }),
+      el('div', { class: `gc-truth ${st.truth}`, text: gcTruthText(g) })
+    ]),
+    actions
+  ]);
+
+  const noteRow = el('div', { class: 'gc-note' }, [
+    el('span', { class: 'hint', text: 'Operatör notu:' }),
+    (() => {
+      const input = el('input', { class: 'input', placeholder: 'Bu sunucu hakkında not (yalnızca panelde görünür)', value: g.note || '' });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') gcSetNote(g.id, input.value); });
+      return input;
+    })(),
+    el('button', { class: 'btn btn-sm', text: 'Notu kaydet', onclick: (e) => gcSetNote(g.id, e.target.closest('.gc-note').querySelector('input').value) })
+  ]);
+
+  row.append(head, noteRow);
+  if (isOpen) row.append(gcDetailBox(g.id));
+  return row;
+}
+
+function gcDetailBox(guildId) {
+  const box = el('div', { class: 'gc-detail', id: `gc-detail-${guildId}` });
+  const data = gcDetail.get(guildId);
+  if (!data) {
+    box.append(el('div', { class: 'empty', text: 'Detay yükleniyor…' }));
+    return box;
+  }
+  const cfg = data.guard;
+
+  box.append(el('div', { class: `gc-truth ${GC_STATUS[data.admin.status]?.truth || 'wait'}`, text: gcTruthText({ ...data.admin, ...data.guild, status: data.admin.status }) }));
+
+  /* --- yapılandırma --- */
+  const grid = el('div', { class: 'grid cols-3', style: 'margin-top:10px' });
+
+  const logSelect = el('select', { class: 'input', id: `gc-log-${guildId}` });
+  logSelect.append(el('option', { value: '', text: '— seçilmedi —' }));
+  data.textChannels.forEach((c) => logSelect.append(el('option', { value: c.id, text: c.name })));
+  logSelect.value = cfg.logChannelId || '';
+  if (cfg.logChannelId && logSelect.value !== cfg.logChannelId) {
+    logSelect.append(el('option', { value: cfg.logChannelId, text: `${cfg.logChannelId} (önbellekte yok)`, selected: 'selected' }));
+    logSelect.value = cfg.logChannelId;
+  }
+
+  const jailSelect = el('select', { class: 'input', id: `gc-jail-${guildId}` });
+  jailSelect.append(el('option', { value: '', text: '— kapalı —' }));
+  data.roles.forEach((r) => jailSelect.append(el('option', { value: r.id, text: r.name })));
+  jailSelect.value = cfg.jailRoleId || '';
+
+  const punishSelect = el('select', { class: 'input', id: `gc-punish-${guildId}` });
+  data.punishments.forEach((p) => punishSelect.append(el('option', { value: p.key, text: p.label })));
+  punishSelect.value = cfg.punishment;
+
+  const windowInput = el('input', { class: 'input', type: 'number', min: '5', max: '600', step: '5', id: `gc-window-${guildId}` });
+  windowInput.value = cfg.windowSeconds;
+
+  grid.append(
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Guard kanalı' }), logSelect, el('div', { class: 'hint', text: data.online ? 'Bot önbelleğindeki metin/duyuru kanalları.' : 'Sunucu bot önbelleğinde değil; mevcut ID korunur.' })]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Ceza kuralı' }), punishSelect, el('div', { class: 'hint', text: 'Gösterim: ceza uygulanmaz, kural olarak görünür.' })]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Sayım penceresi (sn)' }), windowInput, el('div', { class: 'hint', text: '5–600 saniye.' })])
+  );
+  box.append(grid);
+
+  /* --- modüller --- */
+  const mods = el('div', { class: 'gc-mods' });
+  data.modules.forEach((m) => {
+    const on = Boolean(cfg.modules[m.key]);
+    mods.append(el('button', {
+      class: `chip${on ? ' sel' : ''}`,
+      title: m.desc,
+      onclick: (e) => { cfg.modules[m.key] = !on; e.currentTarget.classList.toggle('sel', !on); e.currentTarget.querySelector('span').textContent = `${!on ? '●' : '○'} ${m.label}`; }
+    }, [el('span', { text: `${on ? '●' : '○'} ${m.label}` })]));
+  });
+  box.append(el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Modüller' }), mods]));
+
+  /* --- limitler --- */
+  const limits = el('div', { class: 'grid cols-4' });
+  data.limitActions.forEach((a) => {
+    const input = el('input', { class: 'input', type: 'number', min: '1', max: '100', id: `gc-limit-${guildId}-${a.key}` });
+    input.value = cfg.limits[a.key] ?? a.def;
+    limits.append(el('div', { class: 'field' }, [el('label', { class: 'f', text: a.label }), input]));
+  });
+  box.append(el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Limitler' }), limits]));
+
+  /* --- güvenli liste --- */
+  const draft = gcDraft.get(guildId) || cfg.whitelist.map((u) => (typeof u === 'string' ? u : u.id));
+  gcDraft.set(guildId, [...draft]);
+  const wlBox = el('div', { class: 'chip-row', style: 'display:flex;flex-wrap:wrap;gap:6px' });
+  const redrawWl = () => {
+    wlBox.innerHTML = '';
+    const ids = gcDraft.get(guildId) || [];
+    if (!ids.length) wlBox.append(el('span', { class: 'hint', text: 'Güvenli liste boş.' }));
+    ids.forEach((id) => {
+      const known = cfg.whitelist.find((u) => String(u.id || u) === String(id));
+      wlBox.append(el('span', { class: 'chip sel' }, [
+        el('span', { text: `${known && known.name && known.name !== id ? known.name : ''} ${id}`.trim() }),
+        el('button', {
+          class: 'btn btn-sm',
+          text: '×',
+          style: 'padding:0 4px;margin-left:4px',
+          onclick: () => { gcDraft.set(guildId, (gcDraft.get(guildId) || []).filter((x) => String(x) !== String(id))); redrawWl(); }
+        })
+      ]));
+    });
+  };
+  redrawWl();
+  const wlInput = el('input', { class: 'input', placeholder: 'Kullanıcı ID ekle', style: 'max-width:220px' });
+  wlInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const id = String(wlInput.value || '').replace(/[<@!>]/g, '').trim();
+    if (!id) return;
+    const list = gcDraft.get(guildId) || [];
+    if (!list.map(String).includes(id)) gcDraft.set(guildId, [...list, id]);
+    wlInput.value = '';
+    redrawWl();
+  });
+  box.append(el('div', { class: 'field' }, [
+    el('label', { class: 'f', text: 'Güvenli liste (limitlere takılmaz)' }),
+    el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center' }, [
+      wlInput,
+      el('button', { class: 'btn btn-sm', text: 'Ekle', onclick: () => { wlInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); } })
+    ]),
+    wlBox
+  ]));
+
+  /* --- düğmeler --- */
+  box.append(el('div', { class: 'toolbar', style: 'padding:0' }, [
+    el('button', { class: 'btn btn-primary', text: 'Ayarları kaydet', onclick: () => gcSaveConfig(guildId) }),
+    el('button', { class: 'btn', text: 'Test olayı üret', onclick: () => gcTest(guildId) }),
+    el('button', { class: 'btn', text: 'Yedek al', onclick: () => gcBackup(guildId) }),
+    el('button', { class: 'btn btn-danger', text: 'Olay akışını temizle', onclick: () => gcClearEvents(guildId) })
+  ]));
+
+  /* --- olaylar + operatör geçmişi --- */
+  const evBox = el('div', { id: `gc-events-${guildId}`, style: 'margin-top:10px' });
+  evBox.append(el('label', { class: 'f', text: `Guard olayları (${data.events.length})` }));
+  if (!data.events.length) evBox.append(el('div', { class: 'empty', text: 'Bu sunucu için guard kaydı yok.' }));
+  data.events.slice(0, 20).forEach((e) => {
+    evBox.append(el('div', { class: 'log-row', style: 'display:flex;gap:9px;align-items:flex-start' }, [
+      el('span', { class: 'ic' }, [iconEl(e.type === 'violation' ? 'alert' : e.type === 'action' ? 'sliders' : 'shield', 'icon icon-sm')]),
+      el('div', { class: 'txt' }, [
+        el('div', {}, [el('b', { text: e.title }), el('span', { class: `tag ${e.severity === 'high' ? 'warnc' : e.severity === 'medium' ? 'muted' : 'bot'}`, style: 'margin-left:6px', text: e.severity === 'high' ? 'YÜKSEK' : e.severity === 'medium' ? 'ORTA' : 'BİLGİ' })]),
+        e.detail ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: e.detail }) : null,
+        e.actor?.name ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: `Sorumlu: ${e.actor.name}` }) : null
+      ]),
+      el('span', { class: 'time', text: timeAgo(e.at) })
+    ]));
+  });
+
+  if (data.ops?.length) {
+    evBox.append(el('label', { class: 'f', style: 'margin-top:10px', text: `Bu sunucunun operatör geçmişi (${data.ops.length})` }));
+    data.ops.slice(0, 10).forEach((o) => {
+      evBox.append(el('div', { class: 'log-row', style: 'display:flex;gap:9px' }, [
+        el('span', { class: 'ic' }, [iconEl('sliders', 'icon icon-sm')]),
+        el('span', { class: 'txt', text: `${GC_OPS_LABEL[o.action] || o.action} — ${o.detail || ''}` }),
+        el('span', { class: 'time', text: `${o.actor || 'panel'} · ${timeAgo(o.at)}` })
+      ]));
+    });
+  }
+  box.append(evBox);
+  return box;
+}
+
+const GC_OPS_LABEL = {
+  approve: 'Whitelist’e alındı',
+  revoke: 'Whitelist’ten çıkarıldı (sessiz)',
+  'silent-on': 'Sessize alındı',
+  'silent-off': 'Sessiz mod kaldırıldı',
+  'auto-pending': 'Otomatik pasif (yeni sunucu)',
+  joined: 'Sunucu eklendi',
+  config: 'Ayar güncellendi',
+  note: 'Not',
+  test: 'Test kaydı',
+  backup: 'Yedek',
+  'events-clear': 'Olay akışı temizlendi',
+  policy: 'Politika'
+};
+
+async function gcToggleDetail(guildId) {
+  if (gcOpen.has(guildId)) {
+    gcOpen.delete(guildId);
+    renderGuardCenter();
+    return;
+  }
+  gcOpen.add(guildId);
+  renderGuardCenter();
+  try {
+    gcDetail.set(guildId, await api(`/api/guard/center/guild/detail?guildId=${encodeURIComponent(guildId)}`));
+    renderGuardCenter();
+  } catch (err) {
+    toast(err.message, 'err');
+    gcOpen.delete(guildId);
+    renderGuardCenter();
+  }
+}
+
+async function gcAction(g, action) {
+  let reason = null;
+  if (action === 'revoke' || action === 'silent') {
+    reason = prompt('Sessize alma sebebi (opsiyonel — yalnızca panelde görünür, sunucuya gösterilmez):', g.note || '') || null;
+  }
+  try {
+    const r = await api('/api/guard/center/guild', { method: 'POST', body: { guildId: g.id, action, reason } });
+    gcData = r;
+    if (gcDetail.has(g.id)) gcDetail.delete(g.id);
+    renderGuardCenter();
+    const labels = { approve: "whitelist'e alındı — koruma çalışıyor", revoke: "blacklist'e alındı — koruma sessizce durdu", silent: 'sessize alındı', unsilent: 'sessiz mod kaldırıldı', enable: 'görünür koruma açıldı', disable: 'görünür koruma kapatıldı' };
+    toast(`${g.name}: ${labels[action] || action}`);
+    if (action === 'revoke' || action === 'silent') toast('Sunucu tarafında her şey normal görünmeye devam ediyor.', 'warn');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcSetNote(guildId, text) {
+  try {
+    const r = await api('/api/guard/center/note', { method: 'POST', body: { guildId, text } });
+    if (gcData) {
+      const row = gcData.guilds.find((g) => g.id === guildId);
+      if (row && r.guild) Object.assign(row, r.guild);
+      gcData.ops = r.ops;
+    }
+    renderGuardCenter();
+    toast(text ? 'Not kaydedildi' : 'Not silindi');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcSaveConfig(guildId) {
+  const data = gcDetail.get(guildId);
+  if (!data) return toast('Detay yüklenmedi', 'warn');
+  const limits = {};
+  data.limitActions.forEach((a) => {
+    const node = $(`#gc-limit-${guildId}-${a.key}`);
+    if (node) limits[a.key] = Number(node.value);
+  });
+  const body = {
+    guildId,
+    logChannelId: $(`#gc-log-${guildId}`)?.value || null,
+    jailRoleId: $(`#gc-jail-${guildId}`)?.value || null,
+    punishment: $(`#gc-punish-${guildId}`)?.value,
+    windowSeconds: Number($(`#gc-window-${guildId}`)?.value),
+    modules: data.guard.modules,
+    limits,
+    whitelist: gcDraft.get(guildId) || []
+  };
+  try {
+    await api('/api/guard/center/config', { method: 'POST', body });
+    gcDetail.delete(guildId);
+    gcDetail.set(guildId, await api(`/api/guard/center/guild/detail?guildId=${encodeURIComponent(guildId)}`));
+    await loadGuardCenter();
+    gcOpen.add(guildId);
+    renderGuardCenter();
+    toast('Ayarlar kaydedildi');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcTest(guildId) {
+  try {
+    const r = await api('/api/guard/center/test', { method: 'POST', body: { guildId } });
+    const data = gcDetail.get(guildId);
+    if (data) data.events = r.events;
+    renderGuardCenter();
+    toast(`Test kaydı üretildi: ${r.event.title}`);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcBackup(guildId) {
+  try {
+    const r = await api('/api/guard/center/backup', { method: 'POST', body: { guildId } });
+    toast(`Yedek alındı: ${r.roles} rol, ${r.channels} kanal`);
+    await loadGuardCenter();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcClearEvents(guildId) {
+  try {
+    await api('/api/guard/center/events/clear', { method: 'POST', body: { guildId } });
+    const data = gcDetail.get(guildId);
+    if (data) data.events = [];
+    await loadGuardCenter();
+    toast('Olay akışı temizlendi');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+function renderGuardOps() {
+  const box = $('#gcOps');
+  if (!box || !gcData) return;
+  const list = gcData.ops || [];
+  box.innerHTML = '';
+  $('#gcOpsCount').textContent = list.length;
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">Henüz operatör işlemi yok.</div>';
+    return;
+  }
+  list.forEach((o) => {
+    box.append(el('div', { class: 'log-row', style: 'display:flex;gap:9px;align-items:flex-start' }, [
+      el('span', { class: 'ic' }, [iconEl(o.action === 'revoke' || o.action === 'silent-on' ? 'ban' : o.action === 'approve' ? 'check' : 'sliders', 'icon icon-sm')]),
+      el('div', { class: 'txt' }, [
+        el('div', {}, [el('b', { text: o.guildName || o.guildId || 'Genel' }), el('span', { class: 'tag bot', style: 'margin-left:6px', text: GC_OPS_LABEL[o.action] || o.action })]),
+        o.detail ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: o.detail }) : null
+      ]),
+      el('span', { class: 'time', text: `${o.actor || 'panel'} · ${timeAgo(o.at)}` })
+    ]));
+  });
+}
+
+async function clearGuardOps() {
+  try {
+    await api('/api/guard/center/ops/clear', { method: 'POST', body: {} });
+    if (gcData) gcData.ops = [];
+    renderGuardOps();
+    toast('Operatör kayıtları temizlendi');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
 
 async function copyInvite() {
   try {

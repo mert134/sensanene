@@ -22,6 +22,16 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - Hem `/guard` slash komutlarıyla hem panelden yönetilir; yapılandırma veritabanında saklanır
 - Bu sürüm **kayıt ve uyarı modundadır** (gösterim): ihlaller kaydedilir ve bildirilir, otomatik ceza (ban/kick/rol alma) uygulanmaz. Ceza kuralı bir yapılandırma olarak gösterilir.
 
+**Guard Merkezi (operatör katmanı — yalnızca panelde)**
+- Guard **yalnızca senin whitelist'e aldığın sunucularda çalışır**. Bota eklenen her yeni sunucu otomatik olarak **pasif (onay bekliyor)** başlar; sahibi isterse ve sen uygun görürsen tek tıkla whitelist'e alırsın (whitelist'e almak görünür korumayı da açar).
+- **Blacklist / sessiz mod:** kötüye kullandığını düşündüğün sunucuyu tek tıkla sessize alırsın. İzleme tamamen durur; buna rağmen o sunucuda `/guard durum` ve diğer `/guard` komutları **aynen normal görünür** (koruma "aktif" yazar, ayarlar değişir), yani korumanın kapalı olduğunu anlayamazlar.
+- Operatör bilgileri (`silent`, `whitelist`, `blacklist`, notlar, operatör kayıtları) Discord'a giden **hiçbir çıktıda yer almaz**: `/guard durum` özeti, guard kanalı embed'leri ve sunucunun olay akışı temiz kalır. Bu bilgiler yalnızca panelde görünür.
+- **Guard Merkezi** tüm sunucuları tek listede gösterir: durum (koruma çalışıyor / sessizde / onay bekliyor / sunucu kapatmış), üye sayısı, modül–limit–ceza–pencere özeti, olay sayısı, son 24 saat ihlali, yedek durumu, güvenli liste sayısı ve operatör notu. Filtre + isim/ID arama vardır.
+- Her sunucunun guard ayarları **merkezden düzenlenebilir**: modüller, limitler, sayım penceresi, ceza kuralı, guard kanalı, koruma rolü, güvenli liste. Ayrıca o sunucunun olay akışı görüntülenip temizlenebilir, örnek test kaydı üretilebilir, yedek alınabilir.
+- **Otomatik pasifleştirme** anahtarı: yeni eklenen sunucuların otomatik pasif başlamasını açıp kapatabilirsin (kapalıyken de whitelist'siz sunucuda koruma çalışmaz).
+- Operatör işlemleri ayrı bir günlükte tutulur (kim, ne zaman, hangi sunucu, hangi işlem, neden) ve **sunucuların guard olay akışına yazılmaz**.
+- Guard Merkezi'nin hiçbir işlemi webhook oluşturmaz; Anonymous webhook politikası (yalnızca manuel) aynen geçerlidir.
+
 **Kanal & kategori yönetimi (tekli ve toplu)**
 - Kategoriye göre gruplanmış metin / ses / duyuru kanalları + arama
 - Tekli kanal veya kategori **oluştur**, **yeniden adlandır**, **konu düzenle**, **sil**
@@ -99,6 +109,7 @@ src/economy.js     → coin cüzdanı, günlük ödül, sıralama
 src/games.js       → yazı tura ve zar mantığı
 src/settings.js    → sunucu ayarları + işlem kayıtları
 src/guard.js       → guard (koruma): yapılandırma, izleme, olay akışı, /guard komutları
+                     + operatör katmanı (whitelist/blacklist, sessiz mod, otomatik pasifleştirme)
 src/store.js       → JSON veritabanı
 src/demo.js        → DEMO_MODE sahte verisi
 public/            → panel arayüzü (index.html, app.js, style.css)

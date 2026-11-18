@@ -60,6 +60,14 @@ function buildClient() {
       status: 'online'
     });
     await registerSlashCommands(c);
+    // Operatör politikası: whitelist dışı/yeni sunucularda koruma pasif kalır.
+    try {
+      const synced = guard.syncAll(c);
+      const active = synced.filter((g) => g.operational).length;
+      console.log(`[guard] ${synced.length} sunucu tarandı — koruma ${active} sunucuda çalışıyor, ${synced.length - active} sunucuda pasif (whitelist/blacklist)`);
+    } catch (err) {
+      console.error('[guard] Senkron hatası:', err.message);
+    }
   });
 
   client.on(Events.Error, (err) => {
@@ -90,7 +98,17 @@ function buildClient() {
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) handleInteraction(interaction).catch((e) => handleInteractionError(interaction, e));
   });
-  client.on(Events.GuildCreate, (guild) => registerSlashForGuild(guild));
+  client.on(Events.GuildCreate, (guild) => {
+    registerSlashForGuild(guild);
+    // Yeni sunucu otomatik olarak pasif başlar: koruma yalnızca operatörün
+    // whitelist'e aldığı sunucularda çalışır. (Webhook oluşturmaz.)
+    try {
+      const res = guard.syncGuild(guild);
+      if (res) console.log(`[guard] ${res.name} eklendi → ${res.status}${res.isNew ? ' (yeni)' : ''}`);
+    } catch (err) {
+      console.error('[guard] Sunucu senkron hatası:', err.message);
+    }
+  });
 
   // Guard (koruma) izlemesi: denetim kaydı, üye katılımı ve mesaj akışı.
   guard.start(client);
