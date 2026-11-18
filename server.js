@@ -8,7 +8,7 @@ const express = require('express');
 const cookieSession = require('cookie-session');
 const crypto = require('crypto');
 const path = require('path');
-const { PermissionsBitField } = require('discord.js');
+const { Events, PermissionsBitField } = require('discord.js');
 
 const settings = require('./src/settings');
 const mod = require('./src/moderation');
@@ -110,7 +110,9 @@ async function resolveAnonymousWebhook(channel, key) {
 
 /**
  * Anonim mesaj gönderimi.
- * ÖNEMLİ: webhook çözümü webhookGate'te, mesaj gönderimi sendGate'te bekler.
+ * Webhook normalde kanal açıldığı anda otomatik hazırlandığı için burada
+ * önbellekten gelir; eksikse webhookGate'te hazırlanır (gönderim kapısını
+ * meşgul etmez). Mesaj gönderimi ise sendGate'te bekler.
  * Webhook çözümünü sendGate İÇİNDE beklersek, webhook yavaşladığında tüm
  * gönderim slotları park eder ve webhook'u hazır olan kanallar bile
  * gönderemezdi (eskiden "7 kanala gönderip kalıyordu" belirtisi buydu).
@@ -125,6 +127,117 @@ async function sendAnonymousMessage(channel, payload) {
     hook = await getAnonymousWebhook(channel);
     return sendGate.run(() => hook.send(payload));
   }
+}
+
+/* ------------------------------------------------------------------
+   OTOMATİK ANONYMOUS WEBHOOK
+   Webhook hazırlığı gönderim anına bırakılmaz: kanal açıldığı (Discord'da
+   oluşturulduğu, panele geldiği veya bot sunucuyu gördüğü) anda arka planda
+   Anonymous webhook'u kanala konur. Böylece mesaj gönderirken "webhook
+   oluştur" adımı hiç çalışmaz; gönderim doğrudan hazır webhook'u kullanır.
+   AUTO_WEBHOOK=0 ile kapatılabilir.
+   ------------------------------------------------------------------ */
+const AUTO_WEBHOOK = process.env.AUTO_WEBHOOK !== '0';
+
+function isTextLikeChannel(channel) {
+  return Boolean(channel) && typeof channel.send === 'function'
+    && ['text', 'announcement'].includes(mod.channelTypeName(channel.type));
+}
+
+function botCanManageWebhooks(channel) {
+  const me = channel.guild?.members?.me;
+  if (!me) return false;
+  try {
+    return Boolean(channel.permissionsFor(me)?.has(PermissionsBitField.Flags.ManageWebhooks));
+  } catch {
+    return false;
+  }
+}
+
+/** ready: webhook önbellekte · preparing: hazırlanıyor · missing: henüz yok */
+function webhookStatusOf(channelId) {
+  const key = String(channelId);
+  if (anonymousWebhookCache.has(key)) return 'ready';
+  if (anonymousWebhookInflight.has(key)) return 'preparing';
+  return 'missing';
+}
+
+/**
+ * Kanala Anonymous webhook'unu arka planda koyar.
+ * Hiçbir çağıranı beklemez: hata olursa yalnızca loglanır, kanal listede
+ * "hazır değil" görünür ve bir sonraki denemede tekrar hazırlanır.
+ */
+function prepareAnonymousWebhook(channel, reason) {
+  if (!AUTO_WEBHOOK || !isTextLikeChannel(channel)) return null;
+  if (webhookStatusOf(channel.id) !== 'missing') return null;
+  if (!botCanManageWebhooks(channel)) return null;
+  return getAnonymousWebhook(channel).catch((err) => {
+    console.warn(`[webhook] #${channel.name} otomatik hazırlanamadı (${reason}): ${err.message}`);
+    return null;
+  });
+}
+
+/**
+ * Sunucudaki uygun kanalların eksik webhook'larını arka planda hazırlar.
+ * Hazırlık webhook kapısından (DISCORD_WEBHOOK_CONCURRENCY) geçer, gönderim
+ * kapısını hiç meşgul etmez.
+ */
+function prepareGuildWebhooks(guild, reason) {
+  if (!AUTO_WEBHOOK || !guild?.channels?.cache) return 0;
+  const pending = [...guild.channels.cache.values()]
+    .filter((channel) => webhookStatusOf(channel.id) === 'missing')
+    .filter((channel) => isTextLikeChannel(channel) && botCanManageWebhooks(channel));
+  pending.forEach((channel) => prepareAnonymousWebhook(channel, reason));
+  return pending.length;
+}
+
+/** Kanal silindiğinde önbellekteki webhook'u bırakır. */
+function forgetAnonymousWebhook(channelId) {
+  anonymousWebhookCache.delete(String(channelId));
+}
+
+/** Discord olaylarına bağlanan otomatik hazırlık. */
+function registerWebhookAutomation(client) {
+  if (!client || !AUTO_WEBHOOK) return;
+
+  // Kanal açıldığı anda Anonymous webhook'u otomatik konur.
+  client.on(Events.ChannelCreate, (channel) => {
+    prepareAnonymousWebhook(channel, 'kanal açıldı');
+  });
+
+  client.on(Events.ChannelDelete, (channel) => {
+    forgetAnonymousWebhook(channel?.id);
+  });
+
+  // Bot bir sunucuyu (yeniden) gördüğünde tüm kanalları hazırlar.
+  client.on(Events.GuildCreate, (guild) => {
+    const started = prepareGuildWebhooks(guild, 'sunucu görüldü');
+    if (started) console.log(`[webhook] ${guild.name}: ${started} kanala Anonymous webhook hazırlanıyor.`);
+  });
+
+  // Açılışta mevcut sunucuların tamamı arka planda hazırlanır.
+  client.on(Events.ClientReady, () => {
+    setTimeout(() => {
+      let total = 0;
+      for (const guild of (botState.client?.guilds?.cache?.values() || [])) total += prepareGuildWebhooks(guild, 'bot açılışı');
+      if (total) console.log(`[webhook] Açılışta ${total} kanala Anonymous webhook hazırlanıyor.`);
+    }, 4000);
+  });
+
+  // Webhook dışarıdan silindiyse önbelleği bırak; bir sonraki hazırlıkta yeniden konur.
+  client.on(Events.WebhooksUpdate, (channel) => {
+    const key = String(channel?.id);
+    const cached = anonymousWebhookCache.get(key);
+    if (!cached) return;
+    channel.fetchWebhooks()
+      .then((hooks) => {
+        if (!hooks.has(cached.id)) {
+          anonymousWebhookCache.delete(key);
+          prepareAnonymousWebhook(channel, 'webhook silindi');
+        }
+      })
+      .catch(() => {});
+  });
 }
 
 function escapeDisabledBroadcastMentions(content, allowEveryone, allowHere) {
@@ -707,10 +820,24 @@ app.get(
         locked: Boolean(ch.permissionOverwrites?.cache?.get(guild.id)?.deny?.has(PermissionsBitField.Flags.SendMessages)),
         nsfw: Boolean(ch.nsfw),
         userLimit: ch.userLimit || 0,
-        bitrate: ch.bitrate || null
+        bitrate: ch.bitrate || null,
+        anonymousWebhook: isTextLikeChannel(ch) ? webhookStatusOf(ch.id) : null
       }))
       .sort((a, b) => a.position - b.position);
-    res.json({ channels });
+
+    // Panel kanal listesini her açtığında eksik webhook'lar arka planda tamamlanır:
+    // gönderim anına webhook oluşturma işi kalmaz.
+    const started = prepareGuildWebhooks(guild, 'panel kanal listesi');
+    const ready = channels.filter((ch) => ch.anonymousWebhook === 'ready').length;
+    res.json({
+      channels,
+      webhookAuto: AUTO_WEBHOOK,
+      webhooks: {
+        ready,
+        preparing: started,
+        eligible: channels.filter((ch) => ch.anonymousWebhook).length
+      }
+    });
   })
 );
 
@@ -719,6 +846,10 @@ app.post('/api/channels/create', requireAuth, wrap(async (req, res) => {
   const actor = await actorOf(req, guild);
   const result = await mod.createChannel(guild, actor, req.body || {});
   if (result.ok) settings.log(guild.id, 'channel', `${actor.user.username} kanal oluşturdu: ${req.body.name}`);
+  // Kanal açılır açılmaz Anonymous webhook'u arka planda konur.
+  if (result.ok && result.channelId) {
+    prepareAnonymousWebhook(guild.channels.cache.get(String(result.channelId)), 'panelden oluşturuldu');
+  }
   res.json(result);
 }));
 
@@ -732,6 +863,10 @@ app.post('/api/channels/bulk/create', requireAuth, wrap(async (req, res) => {
   for (const name of cleanNames) results.push({ name, ...(await mod.createChannel(guild, actor, { name, type, categoryId })) });
   const created = results.filter((r) => r.ok).length;
   if (created) settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal oluşturdu (${created})`);
+  // Yeni açılan kanalların Anonymous webhook'ları da aynı anda arka planda hazırlanır.
+  results.forEach((r) => {
+    if (r.ok && r.channelId) prepareAnonymousWebhook(guild.channels.cache.get(String(r.channelId)), 'toplu oluşturma');
+  });
   res.json({ ok: created > 0, created, failed: results.length - created, results });
 }));
 
@@ -753,40 +888,72 @@ app.post('/api/channels/topic', requireAuth, wrap(async (req, res) => {
 }));
 
 /**
- * Toplu gönderim başlamadan önce Anonymous webhook'larını arka planda hazırlar.
- * Webhook oluşturması yavaş olduğu için bunu gönderim yolundan çıkarıyoruz:
- * panel listeyle bu ucu çağırır, sunucu webhook kapısından geçerek hepsini
- * önbelleğe alır; gönderim başladığında çoğu kanal hazır olur.
+ * Eksik Anonymous webhook'larını arka planda hazırlar.
+ * Normal akışta webhook'lar kanal açıldığı anda otomatik konduğu için bu uç bir
+ * güvenlik ağıdır: panel kanal listesini açtığında ve toplu gönderim
+ * başlamadan önce eksik kalan kanalları tamamlar. Yanıt beklemez; hazırlık
+ * webhook kapısından geçer, gönderim kapısını meşgul etmez.
  */
 app.post('/api/channels/webhooks/warm', requireAuth, wrap(async (req, res) => {
   const guild = getGuild(req.session.guildId);
   const ids = [...new Set(Array.isArray(req.body?.channelIds) ? req.body.channelIds.map(String) : [])];
-  if (!ids.length) return res.json({ ok: true, started: 0 });
+  if (!ids.length) return res.json({ ok: true, started: 0, ready: 0, auto: AUTO_WEBHOOK });
 
   const channels = ids
     .map((id) => guild.channels.cache.get(id))
-    .filter((channel) => channel && typeof channel.send === 'function' && ['text', 'announcement'].includes(mod.channelTypeName(channel.type)))
-    .filter((channel) => channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ManageWebhooks));
+    .filter((channel) => isTextLikeChannel(channel) && botCanManageWebhooks(channel));
+  const alreadyReady = channels.filter((channel) => webhookStatusOf(channel.id) === 'ready').length;
+  const pending = channels.filter((channel) => webhookStatusOf(channel.id) === 'missing');
 
-  // Yanıtı bekletme: hazırlık arka planda, webhook kapısının hızında ilerler.
-  const warming = (async () => {
-    let ready = 0;
-    let failed = 0;
-    await Promise.all(channels.map(async (channel) => {
-      try {
-        await getAnonymousWebhook(channel);
-        ready += 1;
-      } catch (err) {
-        failed += 1;
-        console.error(`[webhook] #${channel.name} hazırlanamadı:`, err.message);
-      }
-    }));
-    settings.log(guild.id, 'site', `Anonymous webhook hazırlığı: ${ready} hazır, ${failed} hatalı`);
-    return { ready, failed };
-  })();
-  warming.catch(() => {});
+  if (pending.length) {
+    const warming = (async () => {
+      let ready = 0;
+      let failed = 0;
+      await Promise.all(pending.map(async (channel) => {
+        try {
+          await getAnonymousWebhook(channel);
+          ready += 1;
+        } catch (err) {
+          failed += 1;
+          console.error(`[webhook] #${channel.name} hazırlanamadı:`, err.message);
+        }
+      }));
+      settings.log(guild.id, 'site', `Anonymous webhook hazırlığı: ${ready} hazır, ${failed} hatalı`);
+      return { ready, failed };
+    })();
+    warming.catch(() => {});
+  }
 
-  res.json({ ok: true, started: channels.length, webhookGate: { limit: webhookGate.limit, active: webhookGate.active, queued: webhookGate.queued } });
+  res.json({
+    ok: true,
+    started: pending.length,
+    ready: alreadyReady,
+    total: channels.length,
+    auto: AUTO_WEBHOOK,
+    webhookGate: { limit: webhookGate.limit, active: webhookGate.active, queued: webhookGate.queued }
+  });
+}));
+
+app.get('/api/channels/webhooks/status', requireAuth, wrap(async (req, res) => {
+  const guild = getGuild(req.session.guildId);
+  const eligible = [...guild.channels.cache.values()]
+    .filter((channel) => isTextLikeChannel(channel) && botCanManageWebhooks(channel));
+  let ready = 0;
+  let preparing = 0;
+  for (const channel of eligible) {
+    const status = webhookStatusOf(channel.id);
+    if (status === 'ready') ready += 1;
+    else if (status === 'preparing') preparing += 1;
+  }
+  res.json({
+    ok: true,
+    auto: AUTO_WEBHOOK,
+    total: eligible.length,
+    ready,
+    preparing,
+    missing: eligible.length - ready - preparing,
+    webhookGate: { limit: webhookGate.limit, active: webhookGate.active, queued: webhookGate.queued }
+  });
 }));
 
 app.post('/api/channels/message', requireAuth, wrap(async (req, res) => {
@@ -849,6 +1016,7 @@ app.post('/api/channels/delete', requireAuth, wrap(async (req, res) => {
   const channel = guild.channels.cache.get(channelId);
   const result = await mod.deleteChannel(guild, actor, channelId);
   if (result.ok) settings.log(guild.id, 'channel', `${actor.user.username} kanal sildi: ${channel ? channel.name : channelId}`);
+  if (result.ok) forgetAnonymousWebhook(channelId);
   res.json(result);
 }));
 
@@ -883,6 +1051,7 @@ app.post('/api/channels/bulk/delete', requireAuth, wrap(async (req, res) => {
   const result = await mod.bulkDeleteChannels(guild, actor, channelIds, Boolean(deleteChildren));
   if (result.ok && result.deleted > 0) {
     settings.log(guild.id, 'channel', `${actor.user.username} toplu kanal sildi (${result.deleted} kanal)`);
+    channelIds.forEach((id) => forgetAnonymousWebhook(id));
   }
   res.json(result);
 }));
@@ -1132,7 +1301,9 @@ app.listen(PORT, '0.0.0.0', () => {
     } else {
       console.log(`[auth] Kullanıcı adı/şifre girişi aktif (kullanıcı: ${ADMIN_USER})`);
     }
-    startBot();
+    // Kanal açılışlarında Anonymous webhook'unu otomatik hazırlayan olaylar.
+    registerWebhookAutomation(startBot());
+    if (AUTO_WEBHOOK) console.log('[webhook] Otomatik Anonymous webhook hazırlığı açık (kapatmak için AUTO_WEBHOOK=0).');
   }
 });
 module.exports = { app };
