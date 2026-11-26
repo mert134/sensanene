@@ -1386,10 +1386,8 @@ async function ensureLogChannel(guild, cfg, { force = false } = {}) {
   if (!cfg.logChannelId) return null;
   const existing = guild.channels?.cache?.get(cfg.logChannelId);
   if (existing && !force) return existing;
-  const key = `logfix:${guild.id}`;
   if (Date.now() - (logFixAt.get(guild.id) || 0) < 60000) return null;
   logFixAt.set(guild.id, Date.now());
-  void key;
   try {
     if (!guild.members?.me?.permissions?.has?.(PermissionsBitField.Flags.ManageChannels)) return null;
     const created = await guild.channels.create({
