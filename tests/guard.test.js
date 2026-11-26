@@ -451,8 +451,12 @@ async function audit(guild, actionType, { executorId = 'nuker-1', targetId = 'ta
 
     const g3 = makeGuild('panic');
     prepare(g3);
+    const panicVictim = makeMember(g3, 'panic-victim-1');
+    makeMember(g3, 'panic-victim-2');
     const p = await guard.panic(g3);
     ok('panik modu çalışır', p && p.ok !== false);
+    ok('panik yetkili rolleri soyar', p.roles >= 2 && panicVictim.roles.__removed >= 1);
+    ok('panik sunucu sahibini atlar', g3.members.cache.get(g3.ownerId)?.roles?.__removed === undefined);
     ok('panik olayı kaydedilir', guard.events('panic', 20).some((e) => e.module === 'antiNuke'));
 
     const g4 = makeGuild('silent');

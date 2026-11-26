@@ -2114,20 +2114,17 @@ async function panic(guild, actorName = 'panel') {
   const results = { members: 0, roles: 0, invites: 0, errors: [] };
   try {
     const whitelist = new Set((cfg.whitelist || []).map(String));
-    const me = guild.members?.me;
-    const botTop = me?.roles?.highest?.position ?? 0;
     const members = guild.members?.cache ? [...guild.members.cache.values()] : [];
     for (const member of members) {
       if (member.user?.bot) continue;
       if (member.id === guild.ownerId) continue;
       if (whitelist.has(String(member.id))) continue;
-      if (!canModerate(guild, member)) continue;
+      if (!canActOn(guild, member)) continue;
       const removed = await stripDangerousRoles(guild, member, 'LORES Guard · panik modu');
       if (removed) {
         results.members += 1;
         results.roles += removed;
       }
-      void botTop;
     }
     try {
       if (guild.invites?.fetch && guild.members?.me?.permissions?.has?.(PermissionsBitField.Flags.ManageGuild)) {
