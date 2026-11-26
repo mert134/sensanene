@@ -504,6 +504,86 @@ async function audit(guild, actionType, { executorId = 'nuker-1', targetId = 'ta
     ok('kritik alt komutlar var', ['honeypot', 'reklam', 'simülasyon', 'panik', 'geri-yükle', 'oran'].every((n) => names.includes(n)));
   }
 
+  section('[12] /guard alt komutları (sahte interaction)');
+  {
+    const g = makeGuild('slash', { memberCount: 50 });
+    prepare(g);
+    makeChannel('chan-1', g);
+    const mkInteraction = (sub, opts = {}) => {
+      const payloads = [];
+      return {
+        commandName: 'guard',
+        guild: g,
+        user: { tag: 'tester#1', id: 'tester-1' },
+        member: { permissions: { has: (f) => f === PermissionFlagsBits.Administrator } },
+        options: {
+          getSubcommand: () => sub,
+          getString: (k) => (opts[k] === undefined ? null : opts[k]),
+          getInteger: (k) => (opts[k] === undefined ? null : opts[k]),
+          getChannel: (k) => (opts[k] ? g.channels.cache.get(opts[k]) : null),
+          getUser: (k) => (opts[k] ? { id: opts[k], tag: 'x' } : null)
+        },
+        deferred: false, replied: false,
+        deferReply: async function () { this.deferred = true; },
+        reply: async (p) => { payloads.push(p); },
+        editReply: async (p) => { payloads.push(p); },
+        followUp: async (p) => { payloads.push(p); },
+        payloads
+      };
+    };
+    const ERROR_TITLES = /Yetki gerekli|Geçersiz|hata|bulunamadı|gerekli|kapalı değil|önce/i;
+    const cases = [
+      ['durum', {}], ['aç', {}], ['kapat', {}], ['aç', {}],
+      ['modül', { 'modül': 'adGuard', durum: 'kapali' }], ['modül', { 'modül': 'adGuard', durum: 'acik' }],
+      ['limit', { 'işlem': 'ban', 'sayı': 4 }], ['oran', { 'işlem': 'ban', 'oran': 4 }],
+      ['pencere', { saniye: 90 }], ['ceza', { 'tür': 'ban' }], ['süre', { dakika: 20 }],
+      ['kanal', { kanal: 'chan-1' }],
+      ['güvenli', { 'işlem': 'ekle', 'kullanıcı': 'trusted-9' }],
+      ['güvenli', { 'işlem': 'liste' }],
+      ['güvenli', { 'işlem': 'çıkar', 'kullanıcı': 'trusted-9' }],
+      ['honeypot', { 'işlem': 'kur' }], ['honeypot', { 'işlem': 'rol' }], ['honeypot', { 'işlem': 'durum' }],
+      ['reklam', { 'işlem': 'timeout' }],
+      ['reklam', { 'işlem': 'ekle', 'değer': 'youtube.com' }],
+      ['reklam', { 'işlem': 'liste' }],
+      ['reklam', { 'işlem': 'çıkar', 'değer': 'youtube.com' }],
+      ['simülasyon', { metin: 'bedava nitro discord.gg/x' }],
+      ['olaylar', {}], ['yedek', {}], ['geri-yükle', {}], ['test', {}], ['panik', {}]
+    ];
+    let replied = 0;
+    let failed = [];
+    for (const [sub, opts] of cases) {
+      const it = mkInteraction(sub, opts);
+      try {
+        const handled = await guard.handleGuardInteraction(it);
+        const p = it.payloads[0];
+        const title = String(p?.embeds?.[0]?.data?.title || '');
+        const good = handled === true && Boolean(title) && !ERROR_TITLES.test(title);
+        if (good) replied += 1;
+        else failed.push(`${sub}:${title || 'yanıt yok'}`);
+      } catch (err) {
+        failed.push(`${sub}:${err.message}`);
+      }
+    }
+    ok(`28 alt komutun tamamı yanıt verir (${replied}/28)`, replied === cases.length, failed.join(' | '));
+
+    const g2 = makeGuild('slash2');
+    prepare(g2);
+    const it = mkInteraction('limit', { 'işlem': 'ban', 'sayı': 500 });
+    it.guild = g2;
+    await guard.handleGuardInteraction(it);
+    ok('aralık dışı limit reddedilir', guard.get('slash2').limits.ban !== 500);
+
+    const simIt = mkInteraction('simülasyon', { metin: 'bedava nitro discord.gg/x' });
+    await guard.handleGuardInteraction(simIt);
+    const simDesc = String(simIt.payloads[0]?.embeds?.[0]?.data?.description || '');
+    ok('simülasyon skoru gösterir', /Skor/.test(simDesc));
+
+    const nonAdmin = mkInteraction('durum', {});
+    nonAdmin.member = { permissions: { has: () => false } };
+    await guard.handleGuardInteraction(nonAdmin);
+    ok('yetkisiz kullanıcı reddedilir', /Yetki gerekli/.test(String(nonAdmin.payloads[0]?.embeds?.[0]?.data?.title || '')));
+  }
+
   console.log(`\nSONUÇ: ${pass} geçti, ${fail} başarısız`);
   if (fail) {
     console.log('Başarısızlar:\n- ' + failures.join('\n- '));
