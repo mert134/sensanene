@@ -68,6 +68,13 @@ function buildClient() {
     } catch (err) {
       console.error('[guard] Senkron hatası:', err.message);
     }
+    // Koruma çalışan sunucularda güvenlik denetimini tazele (yalnızca operasyonel).
+    for (const guild of c.guilds.cache.values()) {
+      try {
+        if (!guard.isOperational(guild.id)) continue;
+        guard.safetyAudit(guild).catch(() => {});
+      } catch { /* yoksay */ }
+    }
   });
 
   client.on(Events.Error, (err) => {
@@ -105,6 +112,16 @@ function buildClient() {
     try {
       const res = guard.syncGuild(guild);
       if (res) console.log(`[guard] ${res.name} eklendi → ${res.status}${res.isNew ? ' (yeni)' : ''}`);
+      if (res?.operational) {
+        // Daha önce kurulmuş tuzak kanal varsa onar, güvenlik denetimini çalıştır.
+        const cfg = guard.get(guild.id);
+        if (cfg.honeypot?.enabled) {
+          if (cfg.honeypot.channelId && !guild.channels.cache.get(cfg.honeypot.channelId)) {
+            guard.createHoneypotChannel(guild, { silent: true }).catch(() => {});
+          }
+        }
+        guard.safetyAudit(guild).catch(() => {});
+      }
     } catch (err) {
       console.error('[guard] Sunucu senkron hatası:', err.message);
     }

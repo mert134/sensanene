@@ -13,22 +13,30 @@ Panelden yaptığın her işlem (ban, kick, mute, kanal düzenleme, oyunlar) an�
 - **Toplu üye yönetimi:** seçilen üyelerin tamamını (sayı sınırı yok) birlikte banlama, atma, susturma, susturmayı kaldırma, uyarma ve rol verme/alma; uzun listeler parçalara bölünüp ilerleme çubuğuyla işlenir
 - 3 uyarıya ulaşan üye otomatik 30 dk susturulur
 
-**Guard (sunucu koruması)**
-- 🛡️ Tek merkezden koruma: **aç/kapat**, 8 modül (Anti-Nuke, Anti-Raid, Kanal Koruması, Rol Koruması, Webhook Koruması, Bot Koruması, Reklam Koruması, Spam Koruması), işlem limitleri, sayım penceresi, ceza kuralı, guard kanalı, koruma rolü ve güvenli liste
-- İzleme gerçek Discord olaylarından beslenir: denetim kaydı (kanal/rol silme-oluşturma, webhook, bot ekleme, ban/kick/toplu atma), üye katılımı (toplu katılım/bot eklenmesi) ve mesaj akışı (davet linki, hızlı tekrar)
-- Sınır aşımı ve şüpheli hareketler **guard kanalına embed olarak** yazılır ve paneldeki olay akışında önem derecesiyle (YÜKSEK/ORTA/BİLGİ) listelenir
-- **Güvenli liste:** listedeki kullanıcılar limitlere takılmaz
-- **Kendi işlemlerini tehlike saymaz:** panelin/botun yaptığı toplu işlemler (kanal/rol oluşturma-silme, toplu ban/kick, **Anonymous webhook ekleme**, anonim toplu gönderim) guard'ı tetiklemez — denetim kaydında yürütücü bot (veya uygulama ID'si) olduğu için bu kayıtlar atlanır, botun kendi mesajları ve Anonymous webhook mesajları spam/reklam izlemesine takılmaz. Kendi Discord hesabınla toplu işlem yapacaksan hesabını **güvenli liste**ye ekle
-- **Yedek:** rol ve kanal listesinin anlık görüntüsü alınır, panelde ve `/guard durum` içinde gösterilir
-- Hem `/guard` slash komutlarıyla hem panelden yönetilir; yapılandırma veritabanında saklanır
-- Bu sürüm **kayıt ve uyarı modundadır** (gösterim): ihlaller kaydedilir ve bildirilir, otomatik ceza (ban/kick/rol alma) uygulanmaz. Ceza kuralı bir yapılandırma olarak gösterilir.
+**Guard (sunucu koruması — gerçek zamanlı, tam müdahale)**
+- 🛡️ Sıfırdan yazılmış gerçek zamanlı koruma motoru: **tespit ettiğinde gerçekten müdahale eder** (mesaj silme, timeout, atma, yasaklama, yetkili rol soyma, kanal/rol onarımı). Ceza kuralı artık dekorasyon değil.
+- **11 modül:** Anti-Nuke, Anti-Raid, Kanal, Rol, Webhook, Bot, Spam, Reklam, Mention, **Honeypot**, Hesap Koruması
+- **Honeypot (tuzak):** panelden veya `/guard honeypot kur` ile `・do-not-touch` adında tuzak kanal + `🛡️ Guard Ekip` adında tuzak rol kurulur. Tuzak kanala yazan, tuzak rolü mention'layan veya tuzak kanalı silen kişi **anında cezalandırılır** (timeout / at / yasak / yetkili rol soyma). Tuzak kanal silinirse otomatik yeniden kurulur; pencerede "kimseye söylenmez" uyarısı görünür ve guard kanalına "tuzak" embed'i düşer.
+- **Reklam motoru (skorlu):** Discord davet linkleri, link kısaltıcılar (bit.ly, tinyurl, t.co…), **nitro/steam/robux scam**, kripto cüzdan & airdrop tuzakları, bahis/iddaa, hesap-takipçi satışı, fiyat/IBAN/Papara/ininal ifadeleri, gizlenmiş yazımlar (`d1scord[.]gg`, sıfır genişlik karakter, leet), sahte Discord/Steam alan adları, IP adresleri, çoklu link, emoji ve büyük harf bombardımanı puanlanır. Skor **3+** ise reklam sayılır. Güvenilir alan adları listesi, "davet linkleri serbest" anahtarı ve panelden **canlı reklam simülatörü** (skor + gerekçe dökümü) vardır.
+- **Anti-Nuke:** sabit limit **ve** sunucu büyüklüğüne göre oran eşiği (örn. her 3 üyede 1 işlem) + "tek kişide toplam yıkıcı işlem" eşiği. Aşılırsa roller soyulur, gerekiyorsa atılır/yasaklanır; kanal/rol silindiyse **yedekten otomatik onarım** yapılır.
+- **Anti-Raid:** 12 saniyelik katılım penceresi, tekrar eden avatarlar, yeni hesap yoğunluğu; bildir / yeni hesapları at / **sunucuyu kilitle (doğrulama yükselt)** seçenekleri.
+- **Kanal/Rol/Webhook/Bot/Emoji/Entegrasyon/Davet** korumaları; **guard kanalı silinirse otomatik yeniden oluşturulur**, yetkisiz webhook'lar temizlenir, güvenli listede olmayan bot atılır (istenirse davet edeni de yasaklar), tehlikeli rol yetkisi değişiklikleri yakalanır.
+- **Spam:** 8 saniyede mesaj bombardımanı, tekrar eden içerik (hash), çoklu kanal spam'i → sohbet temizlenir + timeout.
+- **Mention:** mesaj başına mention sınırı, toplu mention (`@everyone` dahil) → mesaj silinir, aşırıda timeout.
+- **Hesap Koruması:** yeni hesapları işaretler veya atar; **büyük harf / emoji filtresi**, **güvenlik denetimi** (doğrulama seviyesi, 2FA, guard kanalı varlığı) ve **panik modu** (tüm yetkili rolleri soyar, davetleri siler).
+- **Yedek & geri yükleme:** rol/kanal anlık görüntüsü; panelden veya `/guard geri-yükle` ile eksikler yeniden kurulur.
+- **İstatistikler:** müdahale, silinen mesaj, honeypot, reklam ve geri kurulan sayıları; 14 günlük trend grafiği (panelde).
+- **Hazır ayarlar:** Dengeli / Sıkı / Gevşek profilleri tek tıkla uygular (modüller, limitler, cezalar, eşikler).
+- **Kendi işlemlerini tehlike saymaz:** panelin/botun toplu işlemleri ve Anonymous webhook mesajları guard'ı tetiklemez; güvenli listedeki kullanıcılar limit, ceza, reklam ve honeypot'tan muaftır.
+- Her ihlal **guard kanalına detaylı embed** olarak (skor, kanıt, ceza, sayaç) yazılır ve paneldeki canlı akışta önem derecesiyle listelenir.
+- Arayüz: neon "hero" paneli, animasyonlu kalkan, güç anahtarı, KPI kartları, modül kartları, trend grafiği, honeypot ve reklam motoru kartları, limit/oran tablosu, acil durum bölgesi.
 
 **Guard Merkezi (operatör katmanı — yalnızca panelde)**
 - Guard **yalnızca senin whitelist'e aldığın sunucularda çalışır**. Bota eklenen her yeni sunucu otomatik olarak **pasif (onay bekliyor)** başlar; sahibi isterse ve sen uygun görürsen tek tıkla whitelist'e alırsın (whitelist'e almak görünür korumayı da açar).
 - **Blacklist / sessiz mod:** kötüye kullandığını düşündüğün sunucuyu tek tıkla sessize alırsın. İzleme tamamen durur; buna rağmen o sunucuda `/guard durum` ve diğer `/guard` komutları **aynen normal görünür** (koruma "aktif" yazar, ayarlar değişir), yani korumanın kapalı olduğunu anlayamazlar.
 - Operatör bilgileri (`silent`, `whitelist`, `blacklist`, notlar, operatör kayıtları) Discord'a giden **hiçbir çıktıda yer almaz**: `/guard durum` özeti, guard kanalı embed'leri ve sunucunun olay akışı temiz kalır. Bu bilgiler yalnızca panelde görünür.
 - **Guard Merkezi** tüm sunucuları tek listede gösterir: durum (koruma çalışıyor / sessizde / onay bekliyor / sunucu kapatmış), üye sayısı, modül–limit–ceza–pencere özeti, olay sayısı, son 24 saat ihlali, yedek durumu, güvenli liste sayısı ve operatör notu. Filtre + isim/ID arama vardır.
-- Her sunucunun guard ayarları **merkezden düzenlenebilir**: modüller, limitler, sayım penceresi, ceza kuralı, guard kanalı, koruma rolü, güvenli liste. Ayrıca o sunucunun olay akışı görüntülenip temizlenebilir, örnek test kaydı üretilebilir, yedek alınabilir.
+- Her sunucunun guard ayarları **merkezden düzenlenebilir**: modüller, limitler, sayım penceresi, ceza kuralı, timeout süresi, guard kanalı, jail rolü, honeypot cezası, reklam cezası, güvenli liste, hazır profiller (Dengeli/Sıkı/Gevşek). Ayrıca o sunucunun olay akışı ve 14 günlük trendi görüntülenebilir; honeypot kurulabilir, örnek test kaydı üretilebilir, yedek alınıp **geri yüklenebilir** ve **panik modu** çalıştırılabilir.
 - **Otomatik pasifleştirme** anahtarı: yeni eklenen sunucuların otomatik pasif başlamasını açıp kapatabilirsin (kapalıyken de whitelist'siz sunucuda koruma çalışmaz).
 - Operatör işlemleri ayrı bir günlükte tutulur (kim, ne zaman, hangi sunucu, hangi işlem, neden) ve **sunucuların guard olay akışına yazılmaz**.
 - Guard Merkezi'nin hiçbir işlemi webhook oluşturmaz; Anonymous webhook politikası (yalnızca manuel) aynen geçerlidir.
@@ -109,28 +117,35 @@ src/moderation.js  → ban/kick/mute/uyarı/kanal/rol (yetki kontrolleri burada)
 src/economy.js     → coin cüzdanı, günlük ödül, sıralama
 src/games.js       → yazı tura ve zar mantığı
 src/settings.js    → sunucu ayarları + işlem kayıtları
-src/guard.js       → guard (koruma): yapılandırma, izleme, olay akışı, /guard komutları
+src/guard.js       → guard (koruma): gerçek zamanlı tespit + müdahale, honeypot, reklam motoru,
+                     yedek/geri yükleme, panik modu, /guard komutları
                      + operatör katmanı (whitelist/blacklist, sessiz mod, otomatik pasifleştirme)
 src/store.js       → JSON veritabanı
 src/demo.js        → DEMO_MODE sahte verisi
-public/            → panel arayüzü (index.html, app.js, style.css)
+public/            → panel arayüzü (index.html, app.js, style.css, guard.css)
 ```
 
 ### 🛡️ Guard Komutları
 
 `/guard` tek komut altında toplanır (yalnızca **Yönetici** yetkisi olan üyeler kullanabilir):
 
-- `/guard durum` — koruma durumu, modüller, limitler, ceza kuralı, güvenli liste, son 24 saat ve yedek bilgisi
-- `/guard aç` · `/guard kapat` — izlemeyi başlat/durdur
-- `/guard modül <modül> <açık|kapalı>` — Anti-Nuke, Anti-Raid, Kanal/Rol/Webhook/Bot/Reklam/Spam koruması
-- `/guard limit <işlem> <sayı>` — yasaklama, atma, kanal/rol silme-oluşturma, webhook, bot ekleme, toplu üye atma
+- `/guard durum` — modüller, cezalar, honeypot durumu, reklam ayarı, istatistikler ve limitler
+- `/guard aç` · `/guard kapat` — korumayı ve otomatik müdahaleyi başlat/durdur
+- `/guard modül <modül> <açık|kapalı>` — 11 modülün her biri tek tek
+- `/guard limit <işlem> <sayı>` — 15 izlenen işlem için sabit limit
+- `/guard oran <işlem> <oran>` — sunucu büyüklüğüne göre otomatik eşik (0 = kapalı)
 - `/guard pencere <saniye>` — limitlerin sayılacağı süre (5–600 sn)
-- `/guard ceza <tür>` — kural: yasakla / sunucudan at / rollerini al
+- `/guard ceza <tür>` — yasakla / sunucudan at / rollerini al / timeout
+- `/guard süre <dakika>` — timeout cezasının süresi (1–1440 dk)
 - `/guard kanal <kanal>` — guard kayıtlarının yazılacağı kanal
 - `/guard güvenli <ekle|çıkar|liste> [kullanıcı]` — güvenli liste yönetimi
+- `/guard honeypot <kur|rol|kaldir|durum> [ceza]` — tuzak kanal/rol kurulumu ve durumu
+- `/guard reklam <sil|timeout|kick|ban|davet-ac|davet-kapat|ekle|çıkar|liste> [değer]` — reklam cezası, davet kuralı ve güvenilir alan adları
+- `/guard simülasyon <metin>` — bir metnin reklam skorunu test eder (işlem yapmaz)
 - `/guard olaylar` — son guard kayıtları
-- `/guard yedek` — rol ve kanal listesinin anlık görüntüsünü alır
-- `/guard test` — örnek bir guard kaydı üretir (gerçek işlem yapmaz, ceza uygulamaz); panelde **Test olayı üret** düğmesi aynı işi görür
+- `/guard yedek` · `/guard geri-yükle` — anlık görüntü al / eksikleri yeniden kur
+- `/guard panik` — tüm yetkili rolleri soy, davetleri sil (acil durum)
+- `/guard test` — örnek bir guard kaydı üretir (gerçek işlem yapmaz)
 
 ### 🎉 Eğlence Merkezi (60 slash komutu)
 
