@@ -1689,6 +1689,24 @@ function onMemberAdd(member) {
 
     if (cfg.modules.antiRaid === false) return;
 
+    // Aktif raid modu: yeni gelen hesaplar 10 dakika boyunca anında atılır.
+    const activeRaid = raidMode.get(guild.id);
+    if (activeRaid) {
+      if (now >= activeRaid.until) {
+        raidMode.delete(guild.id);
+      } else if (activeRaid.action === 'kick-new' && ageDays != null && ageDays < 2
+        && String(member.id) !== String(guild.ownerId) && !isWhitelisted(cfg, member.id)) {
+        enforce(guild, cfg, {
+          offenderId: member.id,
+          action: 'kick',
+          reason: 'Raid modu — yeni hesap katılımı',
+          module: 'antiRaid',
+          evidence: `${Math.max(1, Math.floor(ageDays))} günlük hesap, raid modu aktif`
+        }).catch(() => {});
+        return;
+      }
+    }
+
     const stamps = pruneStamps(joinStamps.get(guild.id), now, 12000);
     stamps.push({ at: now, userId: member.id, avatar: user.avatar || null, name: (user.username || '').toLowerCase(), newAccount: ageDays != null && ageDays < 2 });
     joinStamps.set(guild.id, stamps.slice(-60));
@@ -2170,6 +2188,18 @@ async function safetyAudit(guild) {
   } catch { /* yoksay */ }
 }
 
+/** Alan adlarını normalize eder: küçük harf, www. temizliği, tekleme, biçim süzgeci. */
+function normalizeDomains(list) {
+  const clean = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    let d = String(raw).toLowerCase().trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+    if (!/^[a-z0-9.-]{3,80}$/.test(d)) continue;
+    if (!clean.includes(d)) clean.push(d);
+    if (clean.length >= 60) break;
+  }
+  return clean;
+}
+
 /** Panelden/komuttan ayar güncelleme (güvenli alanlar). */
 function setConfig(guildId, patch = {}) {
   const cfg = get(guildId);
@@ -2239,10 +2269,10 @@ function setConfig(guildId, patch = {}) {
   }
   // ad.trustedDomains özel: temizle
   if (next.ad && Array.isArray(next.ad.trustedDomains)) {
-    next.ad.trustedDomains = next.ad.trustedDomains.map((d) => String(d).toLowerCase().trim()).filter((d) => /^[a-z0-9.-]{3,80}$/.test(d)).slice(0, 60);
+    next.ad.trustedDomains = normalizeDomains(next.ad.trustedDomains);
   }
   if (patch.ad?.trustedDomains && !next.ad) {
-    next.ad = { trustedDomains: patch.ad.trustedDomains.map((d) => String(d).toLowerCase().trim()).filter((d) => /^[a-z0-9.-]{3,80}$/.test(d)).slice(0, 60) };
+    next.ad = { trustedDomains: normalizeDomains(patch.ad.trustedDomains) };
   }
   if (patch.enabled !== undefined && Boolean(patch.enabled) !== cfg.enabled) {
     setEnabled(guildId, Boolean(patch.enabled));
@@ -2260,6 +2290,7 @@ const PRESETS = [
 
 function applyPreset(guildId, name) {
   const key = String(name || '').toLowerCase();
+  if (!PRESETS.some((p) => p.key === key)) return { ok: false, error: 'Bilinmeyen hazır ayar.' };
   const base = {};
   if (key === 'sikı' || key === 'siki' || key === 'sıkı' || key === 'strict') {
     Object.assign(base, {
@@ -2329,7 +2360,14 @@ function daySeries(guildId, days = 7) {
   const out = [];
   for (let i = days - 1; i >= 0; i -= 1) {
     const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    out.push({ day: d, ...(cfg.stats.byDay?.[d] || {}) });
+    const day = cfg.stats.byDay?.[d] || {};
+    out.push({
+      day: d,
+      blocked: Number(day.blocked) || 0,
+      deleted: Number(day.deleted) || 0,
+      honeypot: Number(day.honeypot) || 0,
+      ads: Number(day.ads) || 0
+    });
   }
   return out;
 }

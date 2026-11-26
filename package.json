@@ -4,7 +4,8 @@
   "description": "Web üzerinden kontrol edilen Discord botu",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node tests/guard.test.js"
   },
   "dependencies": {
     "cookie-session": "^2.1.1",
