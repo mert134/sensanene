@@ -1635,6 +1635,7 @@ app.post(
     const guild = centerGuild(guildId);
     const actor = req.session.user.username;
     const result = guard.applyPreset(guildId, req.body?.preset || 'dengeli');
+    if (!result.ok) throw new Error(result.error || 'Hazır ayar uygulanamadı.');
     guard.pushOps({ guildId, guildName: guild?.name || null, action: 'preset', detail: `Hazır ayar uygulandı: ${result.preset}`, actor });
     const updated = guard.get(guildId);
     res.json({
