@@ -476,7 +476,36 @@ function closeModal() {
 }
 
 /* ============================ DASHBOARD ============================ */
+async function refreshGuardBadges() {
+  try {
+    const d = await api('/api/guard');
+    const on = Boolean(d.guard?.enabled);
+    const nav = $('#navGuardLive');
+    if (nav) nav.classList.toggle('on', on);
+    const badge = $('#dashGuardBadge');
+    if (badge) {
+      badge.textContent = on ? 'koruma aktif' : 'kapalı';
+      badge.className = `badge ${on ? 'green' : 'red'}`;
+    }
+    const body = $('#dashGuardBody');
+    if (body) {
+      const s = d.summary || {};
+      const stats = s.stats || {};
+      body.innerHTML = '';
+      body.append(el('div', { class: 'dash-guard-grid' }, [
+        el('div', { class: 'dg-item' }, [el('b', { text: `${s.modulesActive || 0}/${s.modulesTotal || 0}` }), el('span', { text: 'modül aktif' })]),
+        el('div', { class: 'dg-item' }, [el('b', { text: String(stats.blocked || 0) }), el('span', { text: 'müdahale' })]),
+        el('div', { class: 'dg-item' }, [el('b', { text: String(stats.ads || 0) }), el('span', { text: 'reklam' })]),
+        el('div', { class: 'dg-item' }, [el('b', { text: String(s.honeypot?.hits || 0) }), el('span', { text: 'honeypot' })]),
+        el('div', { class: 'dg-item' }, [el('b', { text: String(stats.deleted || 0) }), el('span', { text: 'silinen mesaj' })]),
+        el('div', { class: 'dg-item' }, [el('b', { text: String(s.violations24h || 0) }), el('span', { text: '24s ihlal' })])
+      ]));
+    }
+  } catch { /* yoksun */ }
+}
+
 async function loadDashboard() {
+  refreshGuardBadges();
   try {
     const d = await api('/api/overview');
     $('#stMembers').textContent = d.guild.memberCount;
@@ -2268,6 +2297,8 @@ async function loadGuard() {
   try {
     guardData = await api('/api/guard');
     renderGuard();
+    const nav = $('#navGuardLive');
+    if (nav) nav.classList.toggle('on', Boolean(guardData.guard?.enabled));
   } catch (err) {
     toast(err.message, 'err');
   }

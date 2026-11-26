@@ -329,3 +329,22 @@
 @media (prefers-reduced-motion: reduce) {
   .guard-emblem, .guard-emblem::after, .guard-hero-glow, .guard-live i, .ev-row { animation: none !important; }
 }
+
+/* ---------------- SIDEBAR CANLI GÖSTERGE ---------------- */
+.nav-live {
+  margin-left: auto; width: 16px; height: 16px; display: inline-grid; place-items: center;
+  border-radius: 999px; background: rgba(255, 93, 115, .16); border: 1px solid rgba(255, 93, 115, .4);
+}
+.nav-live i { width: 6px; height: 6px; border-radius: 50%; background: #ff5d73; box-shadow: 0 0 8px #ff5d73; }
+.nav-live.on { background: rgba(52, 227, 154, .16); border-color: rgba(52, 227, 154, .45); }
+.nav-live.on i { background: #34e39a; box-shadow: 0 0 8px #34e39a; animation: gPulse 1.8s infinite; }
+
+/* ---------------- DASHBOARD GUARD KARTI ---------------- */
+.guard-dash { border-color: rgba(124, 92, 255, .28); background: linear-gradient(140deg, rgba(124, 92, 255, .07), rgba(20, 24, 35, .92) 55%); }
+.dash-guard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.dg-item {
+  padding: 10px 12px; border-radius: 10px; text-align: center;
+  background: rgba(255, 255, 255, .035); border: 1px solid rgba(255, 255, 255, .07);
+}
+.dg-item b { display: block; font-size: 19px; font-weight: 800; color: #eef2ff; letter-spacing: -.02em; }
+.dg-item span { font-size: 10px; color: #7d8aab; text-transform: uppercase; letter-spacing: .5px; }

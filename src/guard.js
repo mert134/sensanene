@@ -434,7 +434,9 @@ const AD_STRONG = [
   { re: /(?:airdrop|free\s*crypto|kripto\s*(?:fırsat|kazan)|usdt\s*kazan|cüzdan\s*bağla|(?:usdt|btc|eth)[\s\S]{0,16}cüzdan|(?:usdt|btc)[\s\S]{0,16}kazan)/i, weight: 3, label: 'kripto tuzağı' },
   { re: /(?:bahis|iddaa|casino|bet\s*sitesi|kupon\s*kodu)[\s\S]{0,20}(?:link|site|tıkla|kazan)/i, weight: 3, label: 'bahis reklamı' },
   { re: /(?:satılık|satış|satıyorum|satın al)[\s\S]{0,20}(?:hesap|sunucu|kanal|takipçi|üye|bot|boost)/i, weight: 3, label: 'satış ilanı' },
-  { re: /(?:takipçi|üye|boost|bot)\s*(?:basma|satışı|kazan)/i, weight: 3, label: 'üye/takipçi satışı' }
+  { re: /(?:takipçi|üye|boost|bot)\s*(?:basma|satışı|kazan)/i, weight: 3, label: 'üye/takipçi satışı' },
+  { re: /(?:discord\.com\/users?\/\d{5,}|discord\.com\/channels\/\d+\/\d+\/\d+)/i, weight: 2, label: 'harici Discord bağlantısı' },
+  { re: /(?:kaç\s*k(?:i)?\s*(?:ayrıcalık|yetki)?\s*kazan|100\s*(?:üye|kişi|davet)[\s\S]{0,24}(?:kazan|ödül|nitro))/i, weight: 2, label: 'davet ödülü tuzağı' }
 ];
 const CRYPTO_RE = /\b(?:bc1[a-z0-9]{25,}|0x[a-f0-9]{40}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|T[A-Za-z1-9]{33})\b/;
 const PRICE_RE = /(?:\d{1,6})\s*(?:tl|try|₺|\$|usd|eur|€|usdt|btc)\b|\b(?:tl|try|₺|\$|usd|eur|€|usdt|btc)\s*\d{1,6}\b/i;
@@ -577,6 +579,12 @@ function analyzeAd(raw, cfg = null, extra = {}) {
     score += 1;
     strong = true;
     reasons.push('kısa link mesajı');
+  }
+
+  // Duyuru biçimi: @everyone/@here + link + reklam sözcüğü → reklam duyurusu
+  if (EVERYONE_RE.test(text) && links.some((l) => !isTrustedLink(l)) && words.length >= 1) {
+    score += 2;
+    reasons.push('@everyone/@here reklam duyurusu');
   }
 
   const extraText = String(extra.text || '');
@@ -2201,6 +2209,9 @@ function setConfig(guildId, patch = {}) {
   mergeObj('safety', ['verifyLevel', 'twoFactor', 'watchIntegrations', 'autoRestore', 'restoreMaxPerWindow']);
   mergeObj('honeypot', ['enabled', 'action', 'hours', 'autoReply']);
   mergeObj('thresholds', ['massDestructive', 'maxMentions', 'massMention']);
+  if (next.honeypot?.action !== undefined && !HONEYPOT_ACTIONS.some((a) => a.key === next.honeypot.action)) delete next.honeypot.action;
+  if (next.ad?.action !== undefined && !AD_ACTIONS.some((a) => a.key === next.ad.action)) delete next.ad.action;
+  if (next.newAccount?.action !== undefined && !NEW_ACCOUNT_ACTIONS.some((a) => a.key === next.newAccount.action)) delete next.newAccount.action;
   if (patch.raidAction && RAID_ACTIONS.some((a) => a.key === patch.raidAction)) next.raidAction = patch.raidAction;
   if (patch.botAction && BOT_ACTIONS.some((a) => a.key === patch.botAction)) next.botAction = patch.botAction;
   if (patch.modules && typeof patch.modules === 'object') {
