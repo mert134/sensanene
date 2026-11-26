@@ -152,8 +152,19 @@ function seedGuard() {
     backup: {
       at: Date.now() - 86400000 * 2,
       takenBy: 'kaptan',
-      roles: roles.map((r) => ({ id: r.id, name: r.name, color: '0', position: r.position, hoist: false, mentionable: false, permissions: '0' })),
-      channels: channels.map((c) => ({ id: c.id, name: c.name, type: DEMO_TYPE_ID[c.type] ?? 0, parentId: c.parentId || null, position: c.position, topic: c.topic || null, nsfw: false }))
+      roles: [
+        ...roles.map((r) => ({ id: r.id, name: r.name, color: '0', position: r.position, hoist: false, mentionable: false, permissions: '0' })),
+        // Yedek alındıktan sonra silinmiş roller (geri yükleme gerçekten bir şeyler kursun)
+        { id: 'r-arch-1', name: 'Etkinlik Sorumlusu', color: '0', position: 3, hoist: false, mentionable: false, permissions: '0' },
+        { id: 'r-arch-2', name: 'Deneme Moderatörü', color: '0', position: 2, hoist: false, mentionable: false, permissions: '0' }
+      ],
+      channels: [
+        ...channels.map((c) => ({ id: c.id, name: c.name, type: DEMO_TYPE_ID[c.type] ?? 0, parentId: c.parentId || null, position: c.position, topic: c.topic || null, nsfw: false })),
+        // Yedekten sonra silinmiş kanallar
+        { id: 'c-arch-1', name: 'eski-sohbet', type: 0, parentId: null, position: 90, topic: 'Arşiv', nsfw: false },
+        { id: 'c-arch-2', name: 'yedek-duyuru', type: 0, parentId: null, position: 91, topic: null, nsfw: false },
+        { id: 'c-arch-3', name: 'etkinlik-ses', type: 2, parentId: null, position: 92, topic: null, nsfw: false }
+      ]
     }
   });
   const now = Date.now();
@@ -729,6 +740,8 @@ function router() {
     };
   }
 
+  let demoCreateSeq = 0;
+
   function demoGuardGuild(guildId) {
     const id = String(guildId);
     const meta = demoGuildMeta(id);
@@ -739,6 +752,7 @@ function router() {
       ownerId: `${id}-owner`,
       memberCount: meta ? meta.memberCount : 500,
       bans: { create: async () => ({ ok: true }) },
+      invites: { fetch: async () => new Map([['inv-demo-1', { delete: async () => true }], ['inv-demo-2', { delete: async () => true }]]) },
       client: { user: { id: 'bot1' } },
       channels: {
         cache: new Map(data.channels.map((c) => [c.id, {
@@ -750,10 +764,52 @@ function router() {
           topic: null,
           isTextBased: () => ['text', 'announcement'].includes(c.type),
           send: async () => ({ id: 'demo-msg' })
-        }]))
+        }])),
+        create: async (opts) => {
+          const id = `demo-created-ch-${(demoCreateSeq += 1)}`;
+          const ch = {
+            id,
+            name: opts?.name || id,
+            type: opts?.type ?? 0,
+            parentId: opts?.parent || null,
+            position: 99,
+            topic: opts?.topic || null,
+            isTextBased: () => ['text', 'announcement', 0, 5, 15].includes(opts?.type ?? 0),
+            send: async () => ({ id: 'demo-msg' })
+          };
+          return ch;
+        }
       },
-      roles: { cache: new Map(data.roles.map((r) => [r.id, { id: r.id, name: r.name, color: 0, position: r.position, managed: Boolean(r.managed), permissions: { bitfield: 0 } }])) },
-      members: { cache: new Map(data.members.map((m) => [m.id, { id: m.id, user: m }])) }
+      roles: {
+        cache: new Map(data.roles.map((r) => [r.id, { id: r.id, name: r.name, color: 0, position: r.position, managed: Boolean(r.managed), permissions: { bitfield: 0 } }])),
+        create: async (opts) => {
+          const id = `demo-created-role-${(demoCreateSeq += 1)}`;
+          return { id, name: opts?.name || id, color: opts?.color || 0, position: 1, managed: false, permissions: { bitfield: 0 } };
+        }
+      },
+      members: {
+        cache: new Map(data.members.map((m, idx) => {
+          const dangerous = !m.bot && idx % 2 === 0 && m.id !== `${id}-owner`;
+          const roleCol = dangerous
+            ? new Map([[`demo-role-${m.id}`, { id: `demo-role-${m.id}`, managed: false, permissions: { has: () => true } }]])
+            : new Map();
+          return [m.id, {
+            id: m.id,
+            user: m,
+            bannable: true,
+            kickable: true,
+            moderatable: true,
+            kick: async () => true,
+            timeout: async () => true,
+            roles: { cache: { values: () => roleCol.values() }, highest: { position: dangerous ? 4 : 0 }, remove: async () => roleCol.size }
+          }];
+        })),
+        me: {
+          id: 'bot1',
+          permissions: { has: () => true },
+          roles: { highest: { position: 9999 } }
+        }
+      }
     };
   }
 
@@ -841,6 +897,22 @@ function router() {
     db.guardEvents['913555340000000003'] = [
       { id: 's3-1', at: now - 11 * day, type: 'action', severity: 'low', title: 'Koruma kapatıldı', detail: 'İşlemi yapan: kurucu', module: null, action: null, actor: null, count: null, limit: null }
     ];
+
+    // Onay bekleyen sunucuda da yedek görünsün (merkezden geri yükleme denenebilsin)
+    guard.update('913555340000000002', {
+      backup: {
+        at: now - 2 * day,
+        takenBy: 'kaptan',
+        roles: [
+          { id: 'g02-r1', name: 'Kurucu', color: '0', position: 5, hoist: true, mentionable: false, permissions: '8' },
+          { id: 'g02-arch', name: 'Eski Yetkili', color: '0', position: 3, hoist: false, mentionable: false, permissions: '0' }
+        ],
+        channels: [
+          { id: 'g02-c1', name: 'sohbet', type: 0, parentId: null, position: 0, topic: 'Sohbet', nsfw: false },
+          { id: 'g02-arch-c', name: 'arsiv-sohbet', type: 0, parentId: null, position: 30, topic: null, nsfw: false }
+        ]
+      }
+    });
 
     db.guardOps = [
       { id: 'op1', at: now - 3 * day, guildId: '913555340000000001', guildName: 'Gece Kulübü TR', action: 'revoke', detail: 'Kötüye kullanım: yetkililere toplu ban', actor: 'kaptan' },
@@ -1045,6 +1117,7 @@ function router() {
     let guildId;
     try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
     const result = await guard.restoreBackup(demoGuardGuild(guildId), { limiter: 20 });
+    if (!result.ok) return demoGuardError(res, Object.assign(new Error(result.error || 'Geri yükleme başarısız.'), { status: 400 }));
     guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'restore', detail: `Geri yükleme: ${result.roles || 0} rol, ${result.channels || 0} kanal`, actor: 'kaptan' });
     res.json({ ok: true, ...result, guild: demoCenterRows().find((x) => x.id === guildId) || null, events: guard.events(guildId, 60) });
   });
@@ -1054,6 +1127,7 @@ function router() {
     let guildId;
     try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
     const result = await guard.panic(demoGuardGuild(guildId), 'kaptan');
+    if (!result.ok) return demoGuardError(res, Object.assign(new Error(result.error || 'Panik modu çalıştırılamadı.'), { status: 400 }));
     guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'panic', detail: `PANİK: ${result.roles || 0} rol`, actor: 'kaptan' });
     res.json({ ok: true, ...result, guild: demoCenterRows().find((x) => x.id === guildId) || null, events: guard.events(guildId, 60) });
   });
