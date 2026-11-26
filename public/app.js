@@ -434,8 +434,8 @@ const TITLES = {
   members: ['Üyeler', 'Bir üyeye tıkla, işlemi seç'],
   channels: ['Kanallar', 'Oluştur, düzenle, sil'],
   roles: ['Roller', 'Rol oluştur, ver, al'],
-  guard: ['Guard', 'Sunucu koruması: modüller, limitler, güvenli liste, olay akışı'],
-  'guard-center': ['Guard Merkezi', 'Tüm sunucular: whitelist, blacklist, sessiz mod, otomatik pasifleştirme'],
+  guard: ['Guard', 'Gerçek zamanlı koruma: honeypot, reklam motoru, modüller, limitler ve canlı olaylar'],
+  'guard-center': ['Guard Merkezi', 'Tüm sunucular: whitelist, blacklist, sessiz mod, honeypot ve müdahale istatistikleri'],
   games: ['Oyunlar', 'Yazı tura, zar ve ekonomi'],
   settings: ['Ayarlar', 'Bot davranışını yapılandır'],
   logs: ['Kayıtlar', 'Son 100 işlem']
@@ -2252,19 +2252,237 @@ async function saveSettings() {
   }
 }
 
-/* ============================ GUARD (KORUMA) ============================ */
+/* ============================ GUARD (KORUMA) ============================
+   Gerçek zamanlı koruma paneli: modül kartları, honeypot, reklam motoru,
+   eşikler, trend grafiği, limitler ve canlı olay akışı.                      */
 let guardData = null;
 const GUARD_SEVERITY = { high: 'YÜKSEK', medium: 'ORTA', low: 'BİLGİ' };
+
+const GUARD_MODULE_ICON = {
+  antiNuke: 'shield', antiRaid: 'users', channelGuard: 'hash', roleGuard: 'tag',
+  webhookGuard: 'link', botGuard: 'bot', spamGuard: 'message', adGuard: 'megaphone',
+  mentionGuard: 'alert', honeypot: 'lock', accountGuard: 'userX'
+};
 
 async function loadGuard() {
   try {
     guardData = await api('/api/guard');
     renderGuard();
   } catch (err) {
-    const box = $('#guardSummary');
-    if (box) box.textContent = err.message;
     toast(err.message, 'err');
   }
+}
+
+function guardSet(sel, value) {
+  const node = $(sel);
+  if (node) node.value = value;
+}
+
+function renderGuard() {
+  if (!guardData) return;
+  const cfg = guardData.guard;
+  const s = guardData.summary || {};
+  const admin = guardData.admin || {};
+  const stats = s.stats || {};
+
+  const on = Boolean(cfg.enabled);
+  const truth = admin.operational === false && admin.status
+    ? (admin.status === 'pending'
+      ? 'Koruma bu sunucuda henüz etkin değil (operatör onayı bekliyor). Ayar ve limitler kayıtlıdır; onaylanınca otomatik devreye girer. '
+      : admin.status === 'silent'
+        ? 'Koruma bu sunucuda operatör tarafından sessize alınmış. '
+        : '')
+    : '';
+
+  // HERO
+  const hero = $('#guardHero');
+  if (hero) {
+    hero.classList.toggle('off', !on);
+    hero.classList.toggle('danger', on && ((s.violations24h || 0) > 8 || admin.status === 'silent'));
+  }
+  const live = $('#guardLive');
+  if (live) {
+    live.classList.toggle('off', !on);
+    live.innerHTML = `<i></i> ${on ? 'CANLI' : 'KAPALI'}`;
+  }
+  const power = $('#guardToggleBtn');
+  if (power) {
+    power.classList.toggle('on', on);
+    const label = $('#guardPowerLabel');
+    if (label) label.textContent = on ? 'Koruma açık' : 'Korumayı aç';
+  }
+
+  const sub = $('#guardHeroSub');
+  if (sub) {
+    sub.innerHTML = truth + (on
+      ? `${s.modulesActive || 0}/${s.modulesTotal || 0} modül izliyor · ana ceza <b>${esc(s.punishmentLabel || '—')}</b> · pencere ${cfg.windowSeconds} sn. İhlalde otomatik müdahale aktif.`
+      : 'Koruma kapalı. Açtığında modüller izlemeye başlar ve ihlallerde otomatik ceza uygulanır.');
+  }
+
+  const chips = $('#guardHeroChips');
+  if (chips) {
+    chips.innerHTML = '';
+    const chip = (icon, text, cls = '') => el('span', { class: `guard-chip ${cls}` }, [iconEl(icon, 'icon'), el('span', { text })]);
+    chips.append(chip('shield', `${s.modulesActive || 0}/${s.modulesTotal || 0} modül`, 'on'));
+    chips.append(chip('megaphone', `Reklam ${stats.ads || 0}`, ''));
+    chips.append(chip('lock', `Honeypot ${cfg.honeypot?.hits || 0}`, cfg.honeypot?.channelId ? 'on' : 'warn'));
+    chips.append(chip('alert', `Müdahale ${stats.blocked || 0}`, ''));
+    chips.append(chip('message', `Silinen ${stats.deleted || 0}`, ''));
+    if (admin.status && admin.status !== 'active') {
+      chips.append(chip('eye', admin.status === 'silent' ? 'Sessiz mod' : 'Onay bekliyor', 'warn'));
+    }
+  }
+
+  // KPI'lar
+  const kpis = $('#guardKpis');
+  if (kpis) {
+    kpis.innerHTML = '';
+    const kpi = (icon, label, value, sub2, cls = '', color = '') => el('div', { class: `guard-kpi ${cls}`, style: color ? `--k:${color}` : '' }, [
+      el('div', { class: 'k-top' }, [iconEl(icon, 'icon'), el('span', { text: label })]),
+      el('div', { class: 'k-val', text: String(value) }),
+      el('div', { class: 'k-sub', text: sub2 })
+    ]);
+    kpis.append(kpi('alert', 'Müdahale', stats.blocked || 0, `${stats.timeouts || 0} timeout · ${stats.bans || 0} ban`, 'hot', '#ff5d73'));
+    kpis.append(kpi('message', 'Silinen mesaj', stats.deleted || 0, `${stats.ads || 0} reklam · ${stats.honeypot || 0} tuzak`, 'cool', '#22d3ee'));
+    kpis.append(kpi('lock', 'Honeypot', cfg.honeypot?.channelId ? 'AKTİF' : 'KURULU DEĞİL', cfg.honeypot?.channelId ? `${cfg.honeypot.hits || 0} tetikleme` : 'Tuzak kanal kur', cfg.honeypot?.channelId ? 'good' : '', '#ffb547'));
+    kpis.append(kpi('ban', 'Rolleri alınan', stats.stripped || 0, `${stats.restored || 0} geri kuruldu`, '', '#7c5cff'));
+    kpis.append(kpi('shield', 'Modüller', `${s.modulesActive || 0}/${s.modulesTotal || 0}`, `pencere ${cfg.windowSeconds} sn`, 'gold', '#f7c948'));
+    kpis.append(kpi('clock', 'Son 24 saat', s.violations24h || 0, 'ihlal kaydı', '', '#34e39a'));
+  }
+
+  // Hazır ayarlar
+  const presets = $('#guardPresets');
+  if (presets) {
+    presets.innerHTML = '';
+    presets.append(el('span', { class: 'p-label', text: 'Hazır ayar:' }));
+    (guardData.presets || []).forEach((p) => {
+      const cls = p.key === 'siki' ? 'siki' : p.key === 'gevsek' ? 'gevsek' : 'dengeli';
+      presets.append(el('button', {
+        class: `preset-btn ${cls}`,
+        title: p.desc,
+        onclick: () => applyGuardPreset(p.key, p.label)
+      }, [el('span', { class: 'p-dot' }), el('span', { text: p.label })]));
+    });
+  }
+
+  // Temel ayarlar
+  const punish = $('#guardPunishment');
+  if (punish) {
+    punish.innerHTML = '';
+    (guardData.punishments || []).forEach((p) => punish.append(el('option', { value: p.key, text: p.label })));
+    punish.value = cfg.punishment;
+  }
+  guardSet('#guardTimeout', cfg.timeoutMinutes ?? 10);
+  guardSet('#guardWindow', cfg.windowSeconds);
+  guardSet('#guardWindowBadge', `${cfg.windowSeconds} sn`);
+  if ($('#guardWindowBadge')) $('#guardWindowBadge').textContent = `${cfg.windowSeconds} sn`;
+  fillGuardSelect('#guardLogChannel', guardData.textChannels || [], cfg.logChannelId, '— seçilmedi —');
+  fillGuardSelect('#guardJailRole', guardData.roles || [], cfg.jailRoleId, '— kapalı —');
+  fillGuardSelect('#guardMutedRole', guardData.roles || [], cfg.mutedRoleId, '— otomatik —');
+  if ($('#guardNote')) {
+    $('#guardNote').innerHTML = 'Botun ve panelin kendi toplu işlemleri guard tarafından tehlike sayılmaz. Kendi hesabınla toplu işlem yapacaksan hesabını <b>Güvenli liste</b>\'ye ekle.';
+  }
+
+  // Modüller
+  const mods = $('#guardModules');
+  if (mods) {
+    mods.innerHTML = '';
+    (guardData.modules || []).forEach((m) => {
+      const isOn = Boolean(cfg.modules[m.key]);
+      const tile = el('button', {
+        class: `mod-tile${isOn ? ' on' : ''}`, title: m.desc,
+        onclick: () => toggleGuardModule(m.key, !isOn)
+      }, [
+        el('span', { class: 'm-ico' }, [iconEl(GUARD_MODULE_ICON[m.key] || 'shield', 'icon')]),
+        el('span', { class: 'm-body' }, [
+          el('span', { class: 'm-name' }, [el('span', { text: m.label })]),
+          el('span', { class: 'm-desc', text: m.desc })
+        ]),
+        el('span', { class: 'm-switch' })
+      ]);
+      mods.append(tile);
+    });
+  }
+  if ($('#guardModuleCount')) {
+    $('#guardModuleCount').textContent = `${(guardData.modules || []).filter((m) => cfg.modules[m.key]).length}/${(guardData.modules || []).length}`;
+  }
+
+  // Honeypot
+  const honey = cfg.honeypot || {};
+  if ($('#guardHoneypotBadge')) {
+    const badge = $('#guardHoneypotBadge');
+    badge.textContent = honey.channelId ? 'aktif' : 'kapalı';
+    badge.className = `badge ${honey.channelId ? 'green' : 'red'}`;
+  }
+  const honeyAction = $('#guardHoneypotAction');
+  if (honeyAction) {
+    honeyAction.innerHTML = '';
+    (guardData.honeypotActions || []).forEach((a) => honeyAction.append(el('option', { value: a.key, text: a.label })));
+    honeyAction.value = honey.action || 'timeout';
+  }
+  guardSet('#guardHoneypotHours', honey.hours ?? 1);
+  const honeyInfo = $('#guardHoneypotInfo');
+  if (honeyInfo) {
+    honeyInfo.innerHTML = '';
+    const tile = (label, value) => el('div', { class: 'honey-tile' }, [el('div', { class: 'h-l', text: label }), el('div', { class: 'h-v', text: value })]);
+    const chName = honey.channelId ? (guardData.textChannels || []).find((c) => c.id === honey.channelId)?.name : null;
+    honeyInfo.append(tile('Tuzak kanal', honey.channelId ? `#${chName || honey.channelId}` : 'Kurulu değil'));
+    honeyInfo.append(tile('Tuzak rol', honey.roleId ? (guardData.roles || []).find((r) => r.id === honey.roleId)?.name || honey.roleId : 'Kurulu değil'));
+    honeyInfo.append(tile('Tetikleme', `${honey.hits || 0} kez`));
+    honeyInfo.append(tile('Son tetikleme', honey.lastAt ? timeAgo(honey.lastAt) : '—'));
+  }
+
+  // Reklam
+  const ad = cfg.ad || {};
+  if ($('#guardAdBadge')) $('#guardAdBadge').textContent = `${ad.detected || 0} tespit`;
+  const adAction = $('#guardAdAction');
+  if (adAction) {
+    adAction.innerHTML = '';
+    (guardData.adActions || []).forEach((a) => adAction.append(el('option', { value: a.key, text: a.label })));
+    adAction.value = ad.action || 'delete';
+  }
+  if ($('#guardAdInvites')) $('#guardAdInvites').value = ad.allowInvites ? 'allow' : 'block';
+  if ($('#guardAdDomains')) $('#guardAdDomains').value = (ad.trustedDomains || []).join(', ');
+
+  // Gelişmiş ayarlar
+  const th = cfg.thresholds || {};
+  guardSet('#guardMassDestructive', th.massDestructive ?? 6);
+  guardSet('#guardMaxMentions', th.maxMentions ?? 6);
+  guardSet('#guardMassMention', th.massMention ?? 12);
+  const raidSel = $('#guardRaidAction');
+  if (raidSel) {
+    raidSel.innerHTML = '';
+    (guardData.raidActions || []).forEach((a) => raidSel.append(el('option', { value: a.key, text: a.label })));
+    raidSel.value = cfg.raidAction || 'notify';
+  }
+  const botSel = $('#guardBotAction');
+  if (botSel) {
+    botSel.innerHTML = '';
+    (guardData.botActions || []).forEach((a) => botSel.append(el('option', { value: a.key, text: a.label })));
+    botSel.value = cfg.botAction || 'kick';
+  }
+  const naSel = $('#guardNewAccountAction');
+  if (naSel) {
+    naSel.innerHTML = '';
+    (guardData.newAccountActions || []).forEach((a) => naSel.append(el('option', { value: a.key, text: a.label })));
+    naSel.value = cfg.newAccount?.action || 'notify';
+  }
+  guardSet('#guardNewAccountDays', cfg.newAccount?.days ?? 7);
+  const checks = {
+    guardCapsEnabled: cfg.caps?.enabled !== false,
+    guardEmojiEnabled: cfg.emoji?.enabled !== false,
+    guardVerifyLevel: cfg.safety?.verifyLevel !== false,
+    guardAutoRestore: cfg.safety?.autoRestore !== false,
+    guardWatchIntegrations: cfg.safety?.watchIntegrations !== false,
+    guardAutoReply: cfg.honeypot?.autoReply !== false
+  };
+  Object.entries(checks).forEach(([id, value]) => { const n = $(`#${id}`); if (n) n.checked = value; });
+
+  // Güvenli liste + trend
+  renderGuardWhitelist(cfg.whitelist);
+  renderGuardTrend();
+  renderGuardLimits();
+  renderGuardEvents(guardData.events || []);
 }
 
 function fillGuardSelect(id, list, value, emptyLabel) {
@@ -2272,65 +2490,26 @@ function fillGuardSelect(id, list, value, emptyLabel) {
   if (!node) return;
   node.innerHTML = '';
   node.append(el('option', { value: '', text: emptyLabel }));
-  list.forEach((item) => node.append(el('option', { value: item.id, text: item.name })));
+  (list || []).forEach((item) => node.append(el('option', { value: item.id, text: item.name })));
+  if (value && !(list || []).some((i) => i.id === value)) {
+    node.append(el('option', { value, text: `${value} (önbellekte yok)` }));
+  }
   node.value = value || '';
 }
 
-function renderGuard() {
+async function toggleAllGuardModules(enabled) {
   if (!guardData) return;
-  const cfg = guardData.guard;
-  const summary = guardData.summary;
-
-  const badge = $('#guardBadge');
-  badge.textContent = cfg.enabled ? 'koruma açık' : 'koruma kapalı';
-  badge.className = `badge ${cfg.enabled ? 'green' : 'red'}`;
-  $('#guardToggleBtn').textContent = cfg.enabled ? 'Korumayı kapat' : 'Korumayı aç';
-
-  const backupText = summary.backup ? ` · yedek: ${summary.backup.roles} rol, ${summary.backup.channels} kanal (${timeAgo(summary.backup.at)})` : '';
-  $('#guardSummary').textContent = cfg.enabled
-    ? `${summary.modulesActive}/${summary.modulesTotal} modül izliyor · pencere ${cfg.windowSeconds} sn · son 24 saatte ${summary.violations24h} ihlal kaydı · ceza kuralı: ${summary.punishmentLabel}${backupText}`
-    : `Koruma kapalı. Açtığında ${summary.modulesTotal} modül izlemeye başlar, kayıtlar guard kanalına yazılır.${backupText}`;
-  const admin = guardData.admin || null;
-  const truth = admin
-    ? (admin.status === 'silent'
-      ? 'Bu sunucu SESSİZDE (blacklist): izleme çalışmıyor, Discord tarafında her şey normal görünüyor. '
-      : admin.status === 'pending'
-        ? "Bu sunucu whitelist'te değil: izleme çalışmıyor (onay bekliyor). Guard Merkezi'nden whitelist'e alabilirsin. "
-        : admin.status === 'idle'
-          ? "Whitelist'te ama koruma kapalı: açıldığında izleme gerçekten çalışır. "
-          : 'Koruma bu sunucuda gerçekten çalışıyor (whitelist + açık). ')
-    : '';
-  $('#guardNote').textContent = truth + (summary.simulation
-    ? 'Bu sürüm kayıt ve uyarı modunda çalışır: ihlaller guard kanalına yazılır ve akışta listelenir, otomatik ceza uygulanmaz.'
-    : '');
-
-  fillGuardSelect('#guardLogChannel', guardData.textChannels, cfg.logChannelId, '— seçilmedi —');
-  fillGuardSelect('#guardJailRole', guardData.roles, cfg.jailRoleId, '— kapalı —');
-  const punish = $('#guardPunishment');
-  punish.innerHTML = '';
-  guardData.punishments.forEach((p) => punish.append(el('option', { value: p.key, text: p.label })));
-  punish.value = cfg.punishment;
-  $('#guardWindow').value = cfg.windowSeconds;
-  $('#guardWindowBadge').textContent = `${cfg.windowSeconds} sn`;
-
-  renderGuardModules();
-  renderGuardLimits();
-  renderGuardWhitelist(cfg.whitelist);
-  renderGuardEvents(guardData.events);
-}
-
-function renderGuardModules() {
-  const box = $('#guardModules');
-  const cfg = guardData.guard;
-  box.innerHTML = '';
-  box.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
-  guardData.modules.forEach((m) => {
-    const on = Boolean(cfg.modules[m.key]);
-    const chip = el('button', { class: `chip${on ? ' sel' : ''}`, title: m.desc, onclick: () => toggleGuardModule(m.key, !on) });
-    chip.append(iconEl('shield', 'icon icon-sm'), el('span', { text: `${on ? '●' : '○'} ${m.label}` }));
-    box.append(chip);
-  });
-  $('#guardModuleCount').textContent = `${guardData.modules.filter((m) => Boolean(cfg.modules[m.key])).length}/${guardData.modules.length}`;
+  const changes = (guardData.modules || []).filter((m) => Boolean(guardData.guard.modules[m.key]) !== enabled);
+  if (!changes.length) return toast(enabled ? 'Tüm modüller zaten açık' : 'Tüm modüller zaten kapalı');
+  try {
+    for (const m of changes) {
+      await api('/api/guard/module', { method: 'POST', body: { key: m.key, enabled } });
+    }
+    await loadGuard();
+    toast(`${changes.length} modül ${enabled ? 'açıldı' : 'kapatıldı'}`);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
 }
 
 async function toggleGuardModule(key, enabled) {
@@ -2339,7 +2518,22 @@ async function toggleGuardModule(key, enabled) {
     guardData.guard = r.guard;
     guardData.summary = r.summary;
     renderGuard();
-    toast(`${guardData.modules.find((m) => m.key === key)?.label || key} ${enabled ? 'açıldı' : 'kapatıldı'}`);
+    toast(`${guardData.modules.find((m) => m.key === key)?.label || key} ${enabled ? 'açıldı' : 'kapatıldı'}`, enabled ? 'ok' : 'warn');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function applyGuardPreset(preset, label) {
+  if (!confirm(`"${label}" hazır ayarı uygulanacak. Modüller, limitler, cezalar ve eşikler bu profile göre değiştirilecek. Devam?`)) return;
+  try {
+    const r = await api('/api/guard/preset', { method: 'POST', body: { preset } });
+    guardData.guard = r.guard;
+    guardData.summary = r.summary;
+    guardData.admin = r.admin || guardData.admin;
+    if (r.statsSeries) guardData.statsSeries = r.statsSeries;
+    renderGuard();
+    toast(`${label} ayarı uygulandı`, 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -2347,33 +2541,49 @@ async function toggleGuardModule(key, enabled) {
 
 function renderGuardLimits() {
   const box = $('#guardLimits');
+  if (!box || !guardData) return;
   const cfg = guardData.guard;
   box.innerHTML = '';
-  guardData.limitActions.forEach((a) => {
-    const moduleName = guardData.modules.find((m) => m.key === a.module)?.label || a.module;
-    const on = Boolean(cfg.modules[a.module]);
-    const input = el('input', { class: 'input', type: 'number', min: '1', max: '100', id: `guardLimit-${a.key}` });
-    input.value = cfg.limits[a.key] ?? a.def;
-    box.append(el('div', { class: 'field', style: on ? '' : 'opacity:.55' }, [
-      el('label', { class: 'f', for: `guardLimit-${a.key}`, text: a.label }),
-      input,
-      el('div', { class: 'hint', text: on ? `${moduleName} izliyor` : `${moduleName} kapalı — sayılmıyor` })
+  const labels = el('div', { class: 'limit-tile-labels', style: 'grid-column:1/-1' }, [
+    el('span', { class: 'lt1', text: 'İşlem' }),
+    el('span', { class: 'lt2', text: 'Limit' }),
+    el('span', { class: 'lt3', text: 'Oran 1/x' })
+  ]);
+  box.append(labels);
+  (guardData.limitActions || []).forEach((a) => {
+    const isOn = Boolean(cfg.modules[a.module]);
+    const modName = (guardData.modules || []).find((m) => m.key === a.module)?.label || a.module;
+    const limitInput = el('input', { class: 'input', type: 'number', min: '1', max: '100', id: `guardLimit-${a.key}` });
+    limitInput.value = cfg.limits[a.key] ?? a.def;
+    const ratioInput = el('input', { class: 'input l-ratio', type: 'number', min: '0', max: '100', id: `guardRatio-${a.key}`, title: '0 = yalnızca sabit limit' });
+    ratioInput.value = cfg.ratios?.[a.key] ?? 0;
+    box.append(el('div', { class: `limit-tile${isOn ? '' : ' off'}` }, [
+      el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { class: 'l-name', text: a.label }),
+        el('span', { class: 'l-mod', text: isOn ? `${modName} izliyor` : `${modName} kapalı` })
+      ]),
+      limitInput,
+      ratioInput
     ]));
   });
 }
 
 async function saveGuardLimits() {
   try {
-    const changed = [];
-    guardData.limitActions.forEach((a) => {
-      const node = $(`#guardLimit-${a.key}`);
-      const value = Number(node.value);
-      if (Number.isFinite(value) && value !== guardData.guard.limits[a.key]) changed.push({ key: a.key, value, label: a.label });
+    const limits = {};
+    const ratios = {};
+    (guardData.limitActions || []).forEach((a) => {
+      const l = Number($(`#guardLimit-${a.key}`)?.value);
+      const r = Number($(`#guardRatio-${a.key}`)?.value);
+      if (Number.isFinite(l) && l !== guardData.guard.limits[a.key]) limits[a.key] = l;
+      if (Number.isFinite(r) && r !== (guardData.guard.ratios?.[a.key] ?? 0)) ratios[a.key] = r;
     });
-    if (!changed.length) return toast('Limitlerde değişiklik yok');
-    for (const item of changed) await api('/api/guard/limit', { method: 'POST', body: { key: item.key, value: item.value } });
-    toast(`${changed.length} limit güncellendi: ${changed.map((c) => `${c.label} ${c.value}`).join(', ')}`);
-    await loadGuard();
+    if (!Object.keys(limits).length && !Object.keys(ratios).length) return toast('Limitlerde değişiklik yok');
+    const r = await api('/api/guard/config', { method: 'POST', body: { limits, ratios } });
+    guardData.guard = r.guard;
+    guardData.summary = r.summary;
+    renderGuard();
+    toast(`${Object.keys(limits).length + Object.keys(ratios).length} limit/oran güncellendi`, 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -2382,16 +2592,63 @@ async function saveGuardLimits() {
 async function saveGuardConfig() {
   try {
     const body = {
-      logChannelId: $('#guardLogChannel').value || null,
-      jailRoleId: $('#guardJailRole').value || null,
-      punishment: $('#guardPunishment').value,
-      windowSeconds: Number($('#guardWindow').value)
+      logChannelId: $('#guardLogChannel')?.value || null,
+      jailRoleId: $('#guardJailRole')?.value || null,
+      mutedRoleId: $('#guardMutedRole')?.value || null,
+      punishment: $('#guardPunishment')?.value,
+      windowSeconds: Number($('#guardWindow')?.value),
+      timeoutMinutes: Number($('#guardTimeout')?.value),
+      honeypot: {
+        action: $('#guardHoneypotAction')?.value,
+        hours: Number($('#guardHoneypotHours')?.value)
+      },
+      ad: {
+        action: $('#guardAdAction')?.value,
+        allowInvites: $('#guardAdInvites')?.value === 'allow',
+        trustedDomains: ($('#guardAdDomains')?.value || '').split(',').map((d) => d.trim()).filter(Boolean)
+      }
     };
     const r = await api('/api/guard/config', { method: 'POST', body });
     guardData.guard = r.guard;
     guardData.summary = r.summary;
+    if (r.events) guardData.events = r.events;
+    if (r.statsSeries) guardData.statsSeries = r.statsSeries;
     renderGuard();
-    toast('Guard ayarları kaydedildi');
+    toast('Guard ayarları kaydedildi', 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function saveGuardAdvanced() {
+  try {
+    const body = {
+      thresholds: {
+        massDestructive: Number($('#guardMassDestructive')?.value),
+        maxMentions: Number($('#guardMaxMentions')?.value),
+        massMention: Number($('#guardMassMention')?.value)
+      },
+      raidAction: $('#guardRaidAction')?.value,
+      botAction: $('#guardBotAction')?.value,
+      newAccount: {
+        action: $('#guardNewAccountAction')?.value,
+        days: Number($('#guardNewAccountDays')?.value)
+      },
+      caps: { enabled: Boolean($('#guardCapsEnabled')?.checked) },
+      emoji: { enabled: Boolean($('#guardEmojiEnabled')?.checked) },
+      safety: {
+        verifyLevel: Boolean($('#guardVerifyLevel')?.checked),
+        autoRestore: Boolean($('#guardAutoRestore')?.checked),
+        watchIntegrations: Boolean($('#guardWatchIntegrations')?.checked)
+      },
+      honeypot: { autoReply: Boolean($('#guardAutoReply')?.checked) }
+    };
+    const r = await api('/api/guard/config', { method: 'POST', body });
+    guardData.guard = r.guard;
+    guardData.summary = r.summary;
+    if (r.events) guardData.events = r.events;
+    renderGuard();
+    toast('Gelişmiş ayarlar kaydedildi', 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -2405,30 +2662,96 @@ async function toggleGuard() {
     guardData.summary = r.summary;
     renderGuard();
     await loadGuardEvents();
-    toast(enabled ? 'Koruma açıldı' : 'Koruma kapatıldı');
+    toast(enabled ? 'Koruma açıldı — otomatik müdahale aktif' : 'Koruma kapatıldı', enabled ? 'ok' : 'warn');
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
+async function honeypotAction(action) {
+  const labels = { setup: 'Tuzak kanal kuruluyor…', role: 'Tuzak rol kuruluyor…', test: 'Test tetikleniyor…', disable: 'Honeypot kapatılıyor…' };
+  toast(labels[action] || 'İşlem…');
+  try {
+    const r = await api('/api/guard/honeypot', { method: 'POST', body: { action } });
+    if (r.guard) guardData.guard = r.guard;
+    if (r.summary) guardData.summary = r.summary;
+    if (r.events) guardData.events = r.events;
+    renderGuard();
+    if (action === 'setup') toast(r.result?.existing ? 'Mevcut tuzak kanal kullanılıyor' : 'Tuzak kanal oluşturuldu 🍯', 'ok');
+    else if (action === 'role') toast('Tuzak rol oluşturuldu', 'ok');
+    else if (action === 'disable') toast('Honeypot kapatıldı', 'warn');
+    else toast('Test tetiklendi — olay akışına bak', 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function runAdSim() {
+  const input = $('#guardAdSimInput');
+  const box = $('#guardAdSimResult');
+  if (!input || !box) return;
+  const text = (input.value || '').trim();
+  if (!text) return toast('Test için bir metin yaz', 'warn');
+  box.className = 'ad-sim-result';
+  box.innerHTML = '<span style="color:var(--muted)">Taranıyor…</span>';
+  try {
+    const r = await api('/api/guard/ad-sim', { method: 'POST', body: { text } });
+    const a = r.analysis || {};
+    box.className = `ad-sim-result ${a.confident ? 'hit' : 'clean'}`;
+    box.innerHTML = '';
+    box.append(el('span', { class: 'score-pill', text: `SKOR ${a.score ?? 0} / 3` }));
+    box.append(el('span', { text: a.confident ? '🚫 Reklam olarak işaretlenir' : '✅ Temiz görünüyor' }));
+    if ((a.reasons || []).length) {
+      const reasons = el('div', { class: 'ad-sim-reasons' });
+      a.reasons.forEach((reason) => reasons.append(el('span', { text: reason })));
+      box.append(reasons);
+    }
+  } catch (err) {
+    box.className = 'ad-sim-result';
+    box.textContent = err.message;
+  }
+}
+
+function renderGuardTrend() {
+  const box = $('#guardTrend');
+  if (!box || !guardData) return;
+  box.innerHTML = '';
+  const series = guardData.statsSeries || [];
+  if (!series.length) {
+    box.innerHTML = '<div class="empty" style="padding:14px">Trend verisi yok.</div>';
+    return;
+  }
+  const max = Math.max(1, ...series.map((d) => Math.max(d.blocked || 0, d.deleted || 0, d.honeypot || 0)));
+  series.forEach((d) => {
+    const col = el('div', { class: 't-col', title: `${d.day}\nMüdahale: ${d.blocked || 0}\nSilinen: ${d.deleted || 0}\nHoneypot: ${d.honeypot || 0}` });
+    const bars = el('div', { style: 'flex:1;display:flex;align-items:flex-end;gap:1px;width:100%;justify-content:flex-end' });
+    const bar = (val, cls) => {
+      const h = Math.round((val / max) * 100);
+      return el('div', { class: `t-bar ${cls}`, style: `height:${val ? Math.max(6, h) : 0}%` });
+    };
+    bars.append(bar(d.honeypot || 0, 'b3'), bar(d.deleted || 0, 'b2'), bar(d.blocked || 0, 'b1'));
+    col.append(bars, el('div', { class: 't-day', text: d.day.slice(5) }));
+    box.append(col);
+  });
+}
+
 function renderGuardWhitelist(rawList) {
   const box = $('#guardWhitelist');
-  // Sunucu bazen yalnızca ID listesi döner; panel her iki biçimi de gösterir.
+  if (!box) return;
   const list = (rawList || []).map((u) => (typeof u === 'string' ? { id: u, name: u, bot: false } : u));
   box.innerHTML = '';
-  $('#guardWhitelistCount').textContent = list.length;
+  if ($('#guardWhitelistCount')) $('#guardWhitelistCount').textContent = list.length;
   if (!list.length) {
-    box.innerHTML = '<div class="empty">Güvenli liste boş.</div>';
+    box.innerHTML = '<div class="empty">Güvenli liste boş. Güvendiğin yetkilileri ekle.</div>';
     return;
   }
   list.forEach((u) => {
-    const row = el('div', { class: 'log-row', style: 'display:flex;align-items:center;gap:8px' }, [
+    box.append(el('div', { class: 'log-row', style: 'display:flex;align-items:center;gap:8px' }, [
       el('span', { class: 'ic' }, [iconEl(u.bot ? 'bot' : 'user', 'icon icon-sm')]),
       el('span', { class: 'txt', text: u.name }),
       el('span', { style: 'margin-left:auto;color:var(--muted);font-size:11px', text: u.id }),
       el('button', { class: 'btn btn-sm btn-danger', text: 'Çıkar', onclick: () => guardWhitelist(u.id, 'remove') })
-    ]);
-    box.append(row);
+    ]));
   });
 }
 
@@ -2444,36 +2767,62 @@ async function guardWhitelist(userId, action) {
   try {
     const r = await api('/api/guard/whitelist', { method: 'POST', body: { userId, action } });
     guardData.guard = r.guard;
+    if (r.summary) guardData.summary = r.summary;
     renderGuardWhitelist(r.guard.whitelist);
-    toast(action === 'add' ? 'Güvenli listeye eklendi' : 'Güvenli listeden çıkarıldı');
+    toast(action === 'add' ? 'Güvenli listeye eklendi' : 'Güvenli listeden çıkarıldı', 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
+function guardEventIcon(e) {
+  if (e.module === 'honeypot') return 'lock';
+  if (e.module === 'adGuard') return 'megaphone';
+  if (e.module === 'antiRaid') return 'users';
+  if (e.module === 'spamGuard') return 'message';
+  if (e.type === 'punishment') return 'ban';
+  if (e.type === 'violation') return 'alert';
+  if (e.type === 'action') return 'sliders';
+  return 'shield';
+}
+
 function renderGuardEvents(events) {
   const box = $('#guardEvents');
+  if (!box) return;
+  const query = ($('#guardEventSearch')?.value || '').trim().toLocaleLowerCase('tr');
+  const list = (events || []).filter((e) => !query
+    || String(e.title).toLocaleLowerCase('tr').includes(query)
+    || String(e.detail || '').toLocaleLowerCase('tr').includes(query)
+    || String(e.actor?.name || '').toLocaleLowerCase('tr').includes(query)
+    || String(e.module || '').toLowerCase().includes(query));
   box.innerHTML = '';
-  $('#guardEventCount').textContent = events.length;
-  if (!events.length) {
-    box.innerHTML = '<div class="empty">Henüz guard kaydı yok. Koruma açıkken izlenen işlemler burada listelenir.</div>';
+  if ($('#guardEventCount')) $('#guardEventCount').textContent = guardData ? (guardData.events || []).length : list.length;
+  if (!list.length) {
+    box.innerHTML = '<div class="ev-empty">Henüz guard kaydı yok. Koruma açıkken izlenen işlemler ve müdahaleler burada listelenir.</div>';
     return;
   }
-  events.forEach((e) => {
-    const tagClass = e.severity === 'high' ? 'warnc' : e.severity === 'medium' ? 'muted' : 'bot';
-    box.append(el('div', { class: 'log-row', style: 'display:flex;align-items:flex-start;gap:9px' }, [
-      el('span', { class: 'ic' }, [iconEl(e.type === 'violation' ? 'alert' : e.type === 'action' ? 'sliders' : 'shield', 'icon icon-sm')]),
-      el('div', { class: 'txt' }, [
-        el('div', {}, [
-          el('b', { text: e.title }),
-          el('span', { class: `tag ${tagClass}`, style: 'margin-left:6px', text: GUARD_SEVERITY[e.severity] || 'BİLGİ' })
+  const MODULE_LABEL = Object.fromEntries((guardData?.modules || []).map((m) => [m.key, m.label]));
+  list.slice(0, 80).forEach((e) => {
+    const cls = e.type === 'punishment' ? 'punish' : (e.severity || 'low');
+    const row = el('div', { class: `ev-row ${cls}` }, [
+      el('div', { class: 'ev-ico' }, [iconEl(guardEventIcon(e), 'icon')]),
+      el('div', { class: 'ev-body' }, [
+        el('div', { class: 'ev-title' }, [
+          el('span', { text: e.title }),
+          e.module && MODULE_LABEL[e.module] ? el('span', { class: 'ev-mod', text: MODULE_LABEL[e.module] }) : null,
+          e.score != null ? el('span', { class: 'ev-score', text: `skor ${e.score}` }) : null
         ]),
-        e.detail ? el('div', { style: 'color:var(--muted);font-size:11.5px;margin-top:2px', text: e.detail }) : null,
-        e.actor && e.actor.name ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: `Sorumlu: ${e.actor.name}` }) : null,
-        e.count != null && e.limit != null ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: `Sayaç: ${e.count} işlem · sınır ${e.limit}` }) : null
+        e.detail ? el('div', { class: 'ev-detail', text: e.detail }) : null,
+        (e.actor?.name || e.count != null || e.punishment) ? el('div', { class: 'ev-meta' }, [
+          e.actor?.name ? el('span', {}, [el('span', { text: 'Sorumlu: ' }), el('b', { text: e.actor.name })]) : null,
+          e.count != null ? el('span', {}, [el('span', { text: 'Sayaç: ' }), el('b', { text: `${e.count}${e.limit != null ? ` / ${e.limit}` : ''}` })]) : null,
+          e.punishment ? el('span', {}, [el('span', { text: 'Ceza: ' }), el('b', { text: e.punishment })]) : null,
+          e.evidence ? el('span', {}, [el('span', { text: 'Kanıt: ' }), el('b', { text: String(e.evidence).slice(0, 60) })]) : null
+        ]) : null
       ]),
-      el('span', { class: 'time', text: timeAgo(e.at) })
-    ]));
+      el('span', { class: 'ev-time', text: timeAgo(e.at) })
+    ]);
+    box.append(row);
   });
 }
 
@@ -2491,17 +2840,17 @@ async function loadGuardEvents() {
 }
 
 async function clearGuardEvents() {
+  if (!confirm('Tüm guard olay kayıtları silinsin mi?')) return;
   try {
     await api('/api/guard/events/clear', { method: 'POST', body: {} });
     if (guardData) guardData.events = [];
     renderGuardEvents([]);
-    toast('Guard akışı temizlendi');
+    toast('Guard akışı temizlendi', 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
-/** Guard'ı örnek bir kayıtla dener: gerçek işlem yapılmaz, ceza uygulanmaz. */
 async function runGuardTest() {
   try {
     const r = await api('/api/guard/test', { method: 'POST', body: {} });
@@ -2510,7 +2859,21 @@ async function runGuardTest() {
       guardData.summary = r.summary;
     }
     renderGuardEvents(r.events);
-    toast(`Test kaydı üretildi: ${r.event.title}`);
+    toast(`Test kaydı üretildi: ${r.event.title}`, 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function runSafetyAudit() {
+  try {
+    const r = await api('/api/guard/audit', { method: 'POST', body: {} });
+    if (guardData) {
+      guardData.summary = r.summary;
+      guardData.events = r.events;
+    }
+    renderGuard();
+    toast('Güvenlik denetimi tamamlandı', 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -2519,7 +2882,30 @@ async function runGuardTest() {
 async function takeGuardBackup() {
   try {
     const r = await api('/api/guard/backup', { method: 'POST', body: {} });
-    toast(`Yedek alındı: ${r.roles} rol, ${r.channels} kanal`);
+    toast(`Yedek alındı: ${r.roles} rol, ${r.channels} kanal`, 'ok');
+    await loadGuard();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function restoreGuardBackup() {
+  if (!confirm('Yedekten geri yükleme: silinmiş roller/kanallar yeniden oluşturulacak. Devam?')) return;
+  try {
+    const r = await api('/api/guard/restore', { method: 'POST', body: {} });
+    toast(`Geri yüklendi: ${r.roles || 0} rol, ${r.channels || 0} kanal`, 'ok');
+    await loadGuard();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function panicGuard() {
+  if (!confirm('🚨 PANİK MODU\n\nSunucudaki TÜM yetkili rollerinden (senin ve botun hariç) yetkiler alınacak, davetler silinecek. Bu işlem geri alınamaz.\n\nDevam edilsin mi?')) return;
+  if (!confirm('Son onay: gerçekten tüm yetkileri sıfırlayayım mı?')) return;
+  try {
+    const r = await api('/api/guard/panic', { method: 'POST', body: {} });
+    toast(`Panik modu: ${r.members || 0} üyeden ${r.roles || 0} rol alındı, ${r.invites || 0} davet silindi`, 'warn');
     await loadGuard();
   } catch (err) {
     toast(err.message, 'err');
@@ -2610,7 +2996,9 @@ function renderGuardCenter() {
     { cls: '', value: stats.total, label: 'Toplam sunucu' },
     { cls: 'ok', value: stats.active, label: 'Koruma çalışıyor (whitelist)' },
     { cls: 'off', value: stats.silent, label: 'Sessizde (blacklist)' },
-    { cls: 'wait', value: stats.pending, label: 'Onay bekliyor' }
+    { cls: 'wait', value: stats.pending, label: 'Onay bekliyor' },
+    { cls: 'ok', value: stats.totalBlocked || 0, label: 'Toplam müdahale' },
+    { cls: 'off', value: stats.totalHoneypot || 0, label: 'Honeypot tetikleme' }
   ];
   cards.forEach((c) => statBox.append(el('div', { class: `gc-stat ${c.cls}` }, [el('b', { text: String(c.value) }), el('span', { text: c.label })])));
 
@@ -2668,6 +3056,8 @@ function gcRow(g) {
     g.addedAt ? `eklendi: ${timeAgo(g.addedAt)}` : null,
     g.approvedAt ? `whitelist: ${timeAgo(g.approvedAt)}${g.approvedBy ? ` (${g.approvedBy})` : ''}` : null,
     `${g.modulesActive}/${g.modulesTotal} modül · pencere ${g.windowSeconds} sn · ceza ${g.punishmentLabel}`,
+    g.stats ? `${g.stats.blocked || 0} müdahale · ${g.stats.ads || 0} reklam · ${g.stats.deleted || 0} silinen` : null,
+    g.honeypot?.channelId ? `🍯 honeypot aktif (${g.honeypot.hits || 0} tetikleme)` : '🍯 honeypot yok',
     `${g.eventCount} olay kaydı · son 24 saatte ${g.violations24h} ihlal`,
     g.backup ? `yedek: ${g.backup.roles} rol, ${g.backup.channels} kanal (${timeAgo(g.backup.at)})` : 'yedek yok'
   ].filter(Boolean).join(' · ');
@@ -2713,7 +3103,30 @@ function gcDetailBox(guildId) {
 
   box.append(el('div', { class: `gc-truth ${GC_STATUS[data.admin.status]?.truth || 'wait'}`, text: gcTruthText({ ...data.admin, ...data.guild, status: data.admin.status }) }));
 
-  /* --- yapılandırma --- */
+  /* --- hero satırı --- */
+  const heroChips = el('div', { class: 'guard-hero-chips', style: 'margin:10px 0 4px' });
+  const chip = (text, cls = '') => heroChips.append(el('span', { class: `guard-chip ${cls}`, text }));
+  chip(`${data.admin.modulesActive}/${data.admin.modulesTotal} modül`, 'on');
+  chip(`Ceza: ${data.admin.punishmentLabel}`);
+  chip(`Müdahale: ${data.admin.stats?.blocked || 0}`);
+  chip(`Reklam: ${data.admin.stats?.ads || 0}`);
+  chip(`Honeypot: ${cfg.honeypot?.hits || 0}`, cfg.honeypot?.channelId ? 'on' : 'warn');
+  box.append(heroChips);
+
+  /* --- hazır ayarlar --- */
+  const presetRow = el('div', { class: 'guard-presets', style: 'margin:10px 0 4px' });
+  presetRow.append(el('span', { class: 'p-label', text: 'Hazır ayar:' }));
+  (data.presets || []).forEach((p) => {
+    const cls = p.key === 'siki' ? 'siki' : p.key === 'gevsek' ? 'gevsek' : 'dengeli';
+    presetRow.append(el('button', {
+      class: `preset-btn ${cls}`,
+      title: p.desc,
+      onclick: () => gcApplyPreset(guildId, p.key, p.label)
+    }, [el('span', { class: 'p-dot' }), el('span', { text: p.label })]));
+  });
+  box.append(presetRow);
+
+  /* --- temel yapılandırma --- */
   const grid = el('div', { class: 'grid cols-3', style: 'margin-top:10px' });
 
   const logSelect = el('select', { class: 'input', id: `gc-log-${guildId}` });
@@ -2721,7 +3134,7 @@ function gcDetailBox(guildId) {
   data.textChannels.forEach((c) => logSelect.append(el('option', { value: c.id, text: c.name })));
   logSelect.value = cfg.logChannelId || '';
   if (cfg.logChannelId && logSelect.value !== cfg.logChannelId) {
-    logSelect.append(el('option', { value: cfg.logChannelId, text: `${cfg.logChannelId} (önbellekte yok)`, selected: 'selected' }));
+    logSelect.append(el('option', { value: cfg.logChannelId, text: `${cfg.logChannelId} (önbellekte yok)` }));
     logSelect.value = cfg.logChannelId;
   }
 
@@ -2737,12 +3150,34 @@ function gcDetailBox(guildId) {
   const windowInput = el('input', { class: 'input', type: 'number', min: '5', max: '600', step: '5', id: `gc-window-${guildId}` });
   windowInput.value = cfg.windowSeconds;
 
+  const timeoutInput = el('input', { class: 'input', type: 'number', min: '1', max: '1440', id: `gc-timeout-${guildId}` });
+  timeoutInput.value = cfg.timeoutMinutes ?? 10;
+
+  const honeyAction = el('select', { class: 'input', id: `gc-honey-action-${guildId}` });
+  (data.honeypotActions || guardData?.honeypotActions || []).forEach((a) => honeyAction.append(el('option', { value: a.key, text: a.label })));
+  honeyAction.value = cfg.honeypot?.action || 'timeout';
+
+  const adAction = el('select', { class: 'input', id: `gc-ad-action-${guildId}` });
+  (data.adActions || guardData?.adActions || []).forEach((a) => adAction.append(el('option', { value: a.key, text: a.label })));
+  adAction.value = cfg.ad?.action || 'delete';
+
   grid.append(
     el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Guard kanalı' }), logSelect, el('div', { class: 'hint', text: data.online ? 'Bot önbelleğindeki metin/duyuru kanalları.' : 'Sunucu bot önbelleğinde değil; mevcut ID korunur.' })]),
-    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Ceza kuralı' }), punishSelect, el('div', { class: 'hint', text: 'Gösterim: ceza uygulanmaz, kural olarak görünür.' })]),
-    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Sayım penceresi (sn)' }), windowInput, el('div', { class: 'hint', text: '5–600 saniye.' })])
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Ana ceza' }), punishSelect, el('div', { class: 'hint', text: 'Eşik aşılınca gerçekten uygulanır.' })]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Sayım penceresi (sn)' }), windowInput, el('div', { class: 'hint', text: '5–600 saniye.' })]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Timeout süresi (dk)' }), timeoutInput]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Jail rolü' }), jailSelect]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: '🍯 Honeypot cezası' }), honeyAction]),
+    el('div', { class: 'field' }, [el('label', { class: 'f', text: '📣 Reklam cezası' }), adAction])
   );
   box.append(grid);
+
+  /* --- honeypot aksiyonları --- */
+  box.append(el('div', { class: 'honey-actions', style: 'margin-top:6px' }, [
+    el('button', { class: 'btn btn-sm btn-danger', text: '🍯 Tuzak kanal kur/onar', onclick: () => gcHoneypot(guildId, 'setup') }),
+    el('button', { class: 'btn btn-sm btn-warn', text: 'Tuzak rol kur', onclick: () => gcHoneypot(guildId, 'role') }),
+    el('button', { class: 'btn btn-sm', text: 'Honeypot kapat', onclick: () => gcHoneypot(guildId, 'disable') })
+  ]));
 
   /* --- modüller --- */
   const mods = el('div', { class: 'gc-mods' });
@@ -2763,7 +3198,7 @@ function gcDetailBox(guildId) {
     input.value = cfg.limits[a.key] ?? a.def;
     limits.append(el('div', { class: 'field' }, [el('label', { class: 'f', text: a.label }), input]));
   });
-  box.append(el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Limitler' }), limits]));
+  box.append(el('div', { class: 'field' }, [el('label', { class: 'f', text: 'Limitler (pencere içinde)' }), limits]));
 
   /* --- güvenli liste --- */
   const draft = gcDraft.get(guildId) || cfg.whitelist.map((u) => (typeof u === 'string' ? u : u.id));
@@ -2798,7 +3233,7 @@ function gcDetailBox(guildId) {
     redrawWl();
   });
   box.append(el('div', { class: 'field' }, [
-    el('label', { class: 'f', text: 'Güvenli liste (limitlere takılmaz)' }),
+    el('label', { class: 'f', text: 'Güvenli liste (limitlere ve cezalara takılmaz)' }),
     el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center' }, [
       wlInput,
       el('button', { class: 'btn btn-sm', text: 'Ekle', onclick: () => { wlInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); } })
@@ -2806,11 +3241,29 @@ function gcDetailBox(guildId) {
     wlBox
   ]));
 
+  /* --- trend --- */
+  if (data.statsSeries?.length) {
+    box.append(el('label', { class: 'f', style: 'margin-top:8px', text: '14 günlük müdahale trendi' }));
+    const trend = el('div', { class: 'guard-trend' });
+    const max = Math.max(1, ...data.statsSeries.map((d) => Math.max(d.blocked || 0, d.deleted || 0, d.honeypot || 0)));
+    data.statsSeries.forEach((d) => {
+      const col = el('div', { class: 't-col', title: `${d.day} · müdahale ${d.blocked || 0} · silinen ${d.deleted || 0} · honeypot ${d.honeypot || 0}` });
+      const bars = el('div', { style: 'flex:1;display:flex;align-items:flex-end;gap:1px;width:100%;justify-content:flex-end' });
+      const bar = (val, cls) => el('div', { class: `t-bar ${cls}`, style: `height:${val ? Math.max(6, Math.round((val / max) * 100)) : 0}%` });
+      bars.append(bar(d.honeypot || 0, 'b3'), bar(d.deleted || 0, 'b2'), bar(d.blocked || 0, 'b1'));
+      col.append(bars, el('div', { class: 't-day', text: d.day.slice(5) }));
+      trend.append(col);
+    });
+    box.append(trend);
+  }
+
   /* --- düğmeler --- */
-  box.append(el('div', { class: 'toolbar', style: 'padding:0' }, [
+  box.append(el('div', { class: 'toolbar', style: 'padding:0;margin-top:12px' }, [
     el('button', { class: 'btn btn-primary', text: 'Ayarları kaydet', onclick: () => gcSaveConfig(guildId) }),
     el('button', { class: 'btn', text: 'Test olayı üret', onclick: () => gcTest(guildId) }),
     el('button', { class: 'btn', text: 'Yedek al', onclick: () => gcBackup(guildId) }),
+    el('button', { class: 'btn btn-warn', text: 'Yedekten geri yükle', onclick: () => gcRestore(guildId) }),
+    el('button', { class: 'btn btn-danger', text: 'PANİK MODU', onclick: () => gcPanic(guildId) }),
     el('button', { class: 'btn btn-danger', text: 'Olay akışını temizle', onclick: () => gcClearEvents(guildId) })
   ]));
 
@@ -2819,14 +3272,18 @@ function gcDetailBox(guildId) {
   evBox.append(el('label', { class: 'f', text: `Guard olayları (${data.events.length})` }));
   if (!data.events.length) evBox.append(el('div', { class: 'empty', text: 'Bu sunucu için guard kaydı yok.' }));
   data.events.slice(0, 20).forEach((e) => {
-    evBox.append(el('div', { class: 'log-row', style: 'display:flex;gap:9px;align-items:flex-start' }, [
-      el('span', { class: 'ic' }, [iconEl(e.type === 'violation' ? 'alert' : e.type === 'action' ? 'sliders' : 'shield', 'icon icon-sm')]),
-      el('div', { class: 'txt' }, [
-        el('div', {}, [el('b', { text: e.title }), el('span', { class: `tag ${e.severity === 'high' ? 'warnc' : e.severity === 'medium' ? 'muted' : 'bot'}`, style: 'margin-left:6px', text: e.severity === 'high' ? 'YÜKSEK' : e.severity === 'medium' ? 'ORTA' : 'BİLGİ' })]),
-        e.detail ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: e.detail }) : null,
-        e.actor?.name ? el('div', { style: 'color:var(--muted);font-size:11.5px', text: `Sorumlu: ${e.actor.name}` }) : null
+    const cls = e.type === 'punishment' ? 'punish' : (e.severity || 'low');
+    evBox.append(el('div', { class: `ev-row ${cls}` }, [
+      el('div', { class: 'ev-ico' }, [iconEl(guardEventIcon(e), 'icon')]),
+      el('div', { class: 'ev-body' }, [
+        el('div', { class: 'ev-title' }, [el('span', { text: e.title }), e.score != null ? el('span', { class: 'ev-score', text: `skor ${e.score}` }) : null]),
+        e.detail ? el('div', { class: 'ev-detail', text: e.detail }) : null,
+        (e.actor?.name || e.punishment) ? el('div', { class: 'ev-meta' }, [
+          e.actor?.name ? el('span', {}, [el('span', { text: 'Sorumlu: ' }), el('b', { text: e.actor.name })]) : null,
+          e.punishment ? el('span', {}, [el('span', { text: 'Ceza: ' }), el('b', { text: e.punishment })]) : null
+        ]) : null
       ]),
-      el('span', { class: 'time', text: timeAgo(e.at) })
+      el('span', { class: 'ev-time', text: timeAgo(e.at) })
     ]));
   });
 
@@ -2844,6 +3301,64 @@ function gcDetailBox(guildId) {
   return box;
 }
 
+async function gcApplyPreset(guildId, preset, label) {
+  if (!confirm(`"${label}" hazır ayarı bu sunucuya uygulanacak. Devam?`)) return;
+  try {
+    const r = await api('/api/guard/center/preset', { method: 'POST', body: { guildId, preset } });
+    if (r.statsSeries) {
+      const data = gcDetail.get(guildId);
+      if (data) data.statsSeries = r.statsSeries;
+    }
+    gcDetail.delete(guildId);
+    gcDetail.set(guildId, await api(`/api/guard/center/guild/detail?guildId=${encodeURIComponent(guildId)}`));
+    await loadGuardCenter();
+    gcOpen.add(guildId);
+    renderGuardCenter();
+    toast(`${label} ayarı uygulandı`, 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcHoneypot(guildId, action) {
+  try {
+    const r = await api('/api/guard/center/honeypot', { method: 'POST', body: { guildId, action } });
+    gcDetail.delete(guildId);
+    gcDetail.set(guildId, await api(`/api/guard/center/guild/detail?guildId=${encodeURIComponent(guildId)}`));
+    await loadGuardCenter();
+    gcOpen.add(guildId);
+    renderGuardCenter();
+    const label = action === 'setup' ? 'Tuzak kanal hazır 🍯' : action === 'role' ? 'Tuzak rol hazır' : 'Honeypot kapatıldı';
+    toast(label, action === 'disable' ? 'warn' : 'ok');
+    void r;
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcRestore(guildId) {
+  if (!confirm('Yedekten geri yükleme: eksik roller/kanallar yeniden oluşturulacak. Devam?')) return;
+  try {
+    const r = await api('/api/guard/center/restore', { method: 'POST', body: { guildId } });
+    toast(`Geri yüklendi: ${r.roles || 0} rol, ${r.channels || 0} kanal`, 'ok');
+    await loadGuardCenter();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function gcPanic(guildId) {
+  if (!confirm('🚨 PANİK MODU\nTüm yetkili roller soyulacak ve davetler silinecek. Bu işlem geri alınamaz. Devam?')) return;
+  if (!confirm('Son onay: gerçekten panik modunu çalıştırayım mı?')) return;
+  try {
+    const r = await api('/api/guard/center/panic', { method: 'POST', body: { guildId } });
+    toast(`Panik: ${r.roles || 0} rol alındı, ${r.invites || 0} davet silindi`, 'warn');
+    await loadGuardCenter();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
 const GC_OPS_LABEL = {
   approve: 'Whitelist’e alındı',
   revoke: 'Whitelist’ten çıkarıldı (sessiz)',
@@ -2855,6 +3370,10 @@ const GC_OPS_LABEL = {
   note: 'Not',
   test: 'Test kaydı',
   backup: 'Yedek',
+  restore: 'Yedekten geri yükleme',
+  panic: 'PANİK MODU',
+  honeypot: 'Honeypot',
+  preset: 'Hazır ayar',
   'events-clear': 'Olay akışı temizlendi',
   policy: 'Politika'
 };
@@ -2924,6 +3443,9 @@ async function gcSaveConfig(guildId) {
     jailRoleId: $(`#gc-jail-${guildId}`)?.value || null,
     punishment: $(`#gc-punish-${guildId}`)?.value,
     windowSeconds: Number($(`#gc-window-${guildId}`)?.value),
+    timeoutMinutes: Number($(`#gc-timeout-${guildId}`)?.value),
+    honeypot: { action: $(`#gc-honey-action-${guildId}`)?.value },
+    ad: { action: $(`#gc-ad-action-${guildId}`)?.value },
     modules: data.guard.modules,
     limits,
     whitelist: gcDraft.get(guildId) || []
@@ -2935,7 +3457,7 @@ async function gcSaveConfig(guildId) {
     await loadGuardCenter();
     gcOpen.add(guildId);
     renderGuardCenter();
-    toast('Ayarlar kaydedildi');
+    toast('Ayarlar kaydedildi', 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }

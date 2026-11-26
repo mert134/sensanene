@@ -21,7 +21,9 @@ let members = [
   { id: 'u7', username: 'burak', displayName: 'Burak', bot: false, muted: false, warnings: 0, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 4, createdAt: Date.now() - 8.64e7 * 180 },
   { id: 'u8', username: 'musicbot', displayName: 'MüzikBot', bot: true, muted: false, warnings: 0, role: 'Bot', color: '#5865f2', joinedAt: Date.now() - 8.64e7 * 60, createdAt: Date.now() - 8.64e7 * 500 },
   { id: 'u9', username: 'deniz', displayName: 'Deniz', bot: false, muted: false, warnings: 0, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 2, createdAt: Date.now() - 8.64e7 * 90 },
-  { id: 'u10', username: 'kerem', displayName: 'Kerem', bot: false, muted: false, warnings: 0, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 1, createdAt: Date.now() - 8.64e7 * 60 }
+  { id: 'u10', username: 'kerem', displayName: 'Kerem', bot: false, muted: false, warnings: 0, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 1, createdAt: Date.now() - 8.64e7 * 60 },
+  { id: 'u11', username: 'spamci_01', displayName: 'Spamcı', bot: false, muted: true, warnings: 2, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 3, createdAt: Date.now() - 8.64e7 * 4 },
+  { id: 'u12', username: 'troll_42', displayName: 'Troll', bot: false, muted: true, warnings: 4, role: 'Üye', color: '#95a5a6', joinedAt: Date.now() - 8.64e7 * 2, createdAt: Date.now() - 8.64e7 * 2 }
 ];
 
 let channels = [
@@ -32,7 +34,8 @@ let channels = [
   { id: 'c-cat2', name: 'SESLİ', type: 'category', parentId: null, position: 4, topic: null },
   { id: 'c4', name: 'Sohbet Odası', type: 'voice', parentId: 'c-cat2', position: 5, topic: null },
   { id: 'c5', name: 'Oyun Odası', type: 'voice', parentId: 'c-cat2', position: 6, topic: null },
-  { id: 'c6', name: 'muzik', type: 'voice', parentId: 'c-cat2', position: 7, topic: null }
+  { id: 'c6', name: 'muzik', type: 'voice', parentId: 'c-cat2', position: 7, topic: null },
+  { id: 'c-honey', name: '・do-not-touch', type: 'text', parentId: 'c-cat1', position: 8, topic: '⚠️ Bu kanal bir tuzaktır. Buraya yazan herkes otomatik cezalandırılır.' }
 ];
 
 /* Demo: Anonymous webhook'ları OTOMATİK EKLENMEZ — yalnızca panelde "Anonymous ekle"
@@ -51,7 +54,8 @@ let roles = [
   { id: 'r1', name: 'Kurucu', color: '#f1c40f', position: 9, memberCount: 1, managed: false },
   { id: 'r2', name: 'Moderatör', color: '#2ecc71', position: 7, memberCount: 2, managed: false },
   { id: 'r3', name: 'Üye', color: '#95a5a6', position: 2, memberCount: 7, managed: false },
-  { id: 'r4', name: 'Bot', color: '#5865f2', position: 4, memberCount: 1, managed: true }
+  { id: 'r4', name: 'Bot', color: '#5865f2', position: 4, memberCount: 1, managed: true },
+  { id: 'r-honey', name: '🛡️ Guard Ekip', color: '#2b2d31', position: 1, memberCount: 0, managed: false }
 ];
 
 let bans = [
@@ -90,6 +94,10 @@ function guardGuild() {
   return {
     id: GUILD.id,
     name: GUILD.name,
+    ownerId: 'u1',
+    memberCount: 1284,
+    members: { cache: new Map() },
+    bans: { create: async () => ({ ok: true }) },
     channels: {
       cache: new Map(channels.map((c) => [c.id, {
         id: c.id,
@@ -112,16 +120,54 @@ let guardSeeded = false;
 function seedGuard() {
   if (guardSeeded) return; // demo oturumu boyunca bir kez hazırlanır
   guardSeeded = true;
-  guard.update(GUILD.id, { logChannelId: 'c2', whitelist: ['u1', 'u2'], windowSeconds: 60, punishment: 'ban' });
+  guard.update(GUILD.id, {
+    logChannelId: 'c2',
+    whitelist: ['u1', 'u2'],
+    windowSeconds: 60,
+    punishment: 'ban',
+    honeypot: { enabled: true, channelId: 'c-honey', roleId: 'r-honey', action: 'timeout', hours: 1, hits: 7, lastAt: Date.now() - 1000 * 60 * 47, setupAt: Date.now() - 86400000 * 20 },
+    ad: { action: 'timeout', allowInvites: false, trustedDomains: ['youtube.com', 'twitch.tv'], detected: 34 }
+  });
+  // Demo istatistikleri: KPI kartları ve 14 günlük trend dolu görünsün.
+  {
+    const byDay = {};
+    for (let i = 13; i >= 0; i -= 1) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      byDay[d] = {
+        blocked: [2, 0, 4, 1, 0, 3, 6, 2, 1, 5, 3, 0, 2, 4][13 - i],
+        deleted: [5, 2, 9, 3, 1, 6, 12, 4, 2, 8, 7, 1, 3, 6][13 - i],
+        honeypot: [0, 0, 1, 0, 0, 1, 2, 0, 0, 1, 1, 0, 0, 1][13 - i],
+        ads: [1, 0, 2, 1, 0, 2, 4, 1, 0, 3, 2, 0, 1, 2][13 - i]
+      };
+    }
+    guard.update(GUILD.id, {
+      stats: {
+        blocked: 33, deleted: 69, timeouts: 14, bans: 6, kicks: 4, stripped: 3, restored: 5,
+        honeypot: 7, ads: 19, lastAt: Date.now() - 1000 * 60 * 23, byDay
+      }
+    });
+  }
   guard.setEnabled(GUILD.id, true, 'kaptan');
+  guard.update(GUILD.id, {
+    backup: {
+      at: Date.now() - 86400000 * 2,
+      takenBy: 'kaptan',
+      roles: roles.map((r) => ({ id: r.id, name: r.name, color: '0', position: r.position, hoist: false, mentionable: false, permissions: '0' })),
+      channels: channels.map((c) => ({ id: c.id, name: c.name, type: DEMO_TYPE_ID[c.type] ?? 0, parentId: c.parentId || null, position: c.position, topic: c.topic || null, nsfw: false }))
+    }
+  });
   const now = Date.now();
   const seed = [
-    { at: now - 1000 * 60 * 3, type: 'violation', severity: 'high', title: 'Kanal silme sınırı aşıldı', detail: 'Hedef: #eski-sohbet · 3 işlem / 60 sn', module: 'channelGuard', action: 'channelDelete', actor: { id: 'u6', name: 'elifs' }, count: 3, limit: 2 },
+    { at: now - 1000 * 60 * 3, type: 'violation', severity: 'high', title: 'Kanal silme sınırı aşıldı', detail: 'Hedef: #eski-sohbet · 3 işlem / 60 sn', module: 'channelGuard', action: 'channelDelete', actor: { id: 'u6', name: 'elifs' }, count: 3, limit: 2, punishment: 'ban' },
+    { at: now - 1000 * 60 * 5, type: 'punishment', severity: 'high', title: '🛡️ Müdahale: yasaklandı', detail: 'elifs · Kanal silme sınırı aşıldı', module: 'channelGuard', actor: { id: 'u6', name: 'elifs' }, punishment: 'ban' },
     { at: now - 1000 * 60 * 11, type: 'info', severity: 'medium', title: 'Sunucuya bot eklendi', detail: 'MüzikBot · güvenli listede değil', module: 'botGuard', action: 'botAdd', actor: { id: 'u8', name: 'musicbot' }, count: 1, limit: 1 },
-    { at: now - 1000 * 60 * 26, type: 'violation', severity: 'medium', title: 'Webhook oluşturma sınırı aşıldı', detail: '#duyurular · 4 işlem / 60 sn', module: 'webhookGuard', action: 'webhook', actor: { id: 'u3', name: 'mehmet_42' }, count: 4, limit: 3 },
-    { at: now - 1000 * 60 * 44, type: 'info', severity: 'low', title: 'Davet linki görüldü', detail: '#genel-sohbet · discord.gg/xxxx', module: 'urlGuard', action: null, actor: { id: 'u9', name: 'deniz' }, count: null, limit: null },
-    { at: now - 1000 * 60 * 62, type: 'violation', severity: 'high', title: 'Toplu katılım', detail: '10 saniyede 7 yeni katılım', module: 'antiRaid', action: 'memberPrune', actor: { id: null, name: '7 yeni katılım' }, count: 7, limit: 5 },
-    { at: now - 1000 * 60 * 95, type: 'action', severity: 'low', title: 'Koruma açıldı', detail: 'İşlemi yapan: kaptan', module: null, action: null, actor: null, count: null, limit: null }
+    { at: now - 1000 * 60 * 23, type: 'violation', severity: 'high', title: 'Reklam tespit edildi', detail: 'spamci_01 · #genel-sohbet · skor 9 · bedava nitro tuzağı, link kısaltıcı', module: 'adGuard', actor: { id: 'u11', name: 'spamci_01' }, score: 9, punishment: 'timeout', evidence: 'BEDAVA NITRO → bit.ly/3xYz' },
+    { at: now - 1000 * 60 * 26, type: 'violation', severity: 'medium', title: 'Webhook oluşturma sınırı aşıldı', detail: '#duyurular · 4 işlem / 60 sn', module: 'webhookGuard', action: 'webhook', actor: { id: 'u3', name: 'mehmet_42' }, count: 4, limit: 2 },
+    { at: now - 1000 * 60 * 44, type: 'violation', severity: 'high', title: '🍯 Honeypot tetiklendi', detail: 'troll_42 tuzak kanal ile etkileşime girdi. Uygulanan: Timeout (saatlik)', module: 'honeypot', actor: { id: 'u12', name: 'troll_42' }, punishment: 'timeout', evidence: 'Tuzak: kanal' },
+    { at: now - 1000 * 60 * 62, type: 'violation', severity: 'high', title: '🚨 Olası raid tespit edildi', detail: '12 saniyede 9 katılım · 5 yeni hesap', module: 'antiRaid', action: 'memberPrune', actor: { id: null, name: '9 yeni katılım' }, count: 9, limit: 6 },
+    { at: now - 1000 * 60 * 78, type: 'violation', severity: 'medium', title: 'Toplu mention (mass ping)', detail: 'can_o · #genel-sohbet · 14 mention (@everyone)', module: 'mentionGuard', actor: { id: 'u5', name: 'can_o' }, count: 14, limit: 6 },
+    { at: now - 1000 * 60 * 95, type: 'action', severity: 'low', title: 'Koruma açıldı', detail: 'İşlemi yapan: kaptan', module: null, action: null, actor: null, count: null, limit: null },
+    { at: now - 1000 * 60 * 140, type: 'action', severity: 'medium', title: '🍯 Honeypot kanalı kuruldu', detail: '#・do-not-touch tuzak olarak ayarlandı.', module: 'honeypot' }
   ];
   db.guardEvents[GUILD.id] = seed.map((e, i) => ({ id: `demo-${i}`, ...e }));
 }
@@ -503,10 +549,17 @@ function router() {
       modules: guard.MODULES,
       limitActions: guard.LIMIT_ACTIONS,
       punishments: guard.PUNISHMENTS,
+      honeypotActions: guard.HONEYPOT_ACTIONS,
+      adActions: guard.AD_ACTIONS,
+      botActions: guard.BOT_ACTIONS,
+      raidActions: guard.RAID_ACTIONS,
+      newAccountActions: guard.NEW_ACCOUNT_ACTIONS,
+      presets: guard.PRESETS,
+      statsSeries: guard.daySeries(GUILD.id, 14),
       summary: guard.summary(GUILD.id, guild),
       admin: guard.adminSummary(GUILD.id, guild),
       statusLabels: guard.STATUS_LABEL,
-      events: guard.events(GUILD.id, 40),
+      events: guard.events(GUILD.id, 60),
       textChannels: channels.filter((c) => ['text', 'announcement'].includes(c.type)).map((c) => ({ id: c.id, name: c.name })),
       roles: roles.map((r2) => ({ id: r2.id, name: r2.name }))
     };
@@ -516,27 +569,82 @@ function router() {
 
   r.post('/api/guard/config', (req, res) => {
     const body = req.body || {};
-    const patch = {};
-    if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
-    if (body.logChannelId !== undefined) patch.logChannelId = body.logChannelId || null;
-    if (body.jailRoleId !== undefined) patch.jailRoleId = body.jailRoleId || null;
-    if (body.punishment !== undefined) {
-      if (!guard.PUNISHMENTS.some((p) => p.key === body.punishment)) return res.status(400).json({ error: 'Geçersiz ceza kuralı.' });
-      patch.punishment = body.punishment;
+    const result = guard.setConfig(GUILD.id, body);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    if (Array.isArray(body.whitelist)) {
+      guard.update(GUILD.id, { whitelist: body.whitelist.map((x) => String(x).replace(/[<@!>]/g, '')).filter((x) => /^[\w-]{1,32}$/.test(x)) });
     }
-    if (body.windowSeconds !== undefined) {
-      const n = Math.floor(Number(body.windowSeconds));
-      if (!Number.isFinite(n) || n < 5 || n > 600) return res.status(400).json({ error: 'Pencere 5 ile 600 saniye arasında olmalı.' });
-      patch.windowSeconds = n;
+    if (body.enabled !== undefined && Boolean(body.enabled) !== guard.get(GUILD.id).enabled) {
+      guard.setEnabled(GUILD.id, Boolean(body.enabled), 'kaptan');
+      pushLog('guard', `Koruma ${body.enabled ? 'açıldı' : 'kapatıldı'}`);
     }
-    if (patch.enabled !== undefined && patch.enabled !== guard.get(GUILD.id).enabled) {
-      guard.setEnabled(GUILD.id, patch.enabled, 'kaptan');
-      pushLog('guard', `Koruma ${patch.enabled ? 'açıldı' : 'kapatıldı'}`);
-      delete patch.enabled;
-    }
-    guard.update(GUILD.id, patch);
     const payload = guardPayload();
-    res.json({ ok: true, guard: payload.guard, summary: payload.summary });
+    res.json({ ok: true, guard: payload.guard, summary: payload.summary, events: payload.events, statsSeries: payload.statsSeries });
+  });
+
+  r.post('/api/guard/preset', (req, res) => {
+    const result = guard.applyPreset(GUILD.id, req.body?.preset || 'dengeli');
+    pushLog('guard', `Hazır ayar uygulandı: ${result.preset}`);
+    const payload = guardPayload();
+    res.json({ ok: true, guard: payload.guard, summary: payload.summary, admin: payload.admin, statsSeries: payload.statsSeries });
+  });
+
+  r.post('/api/guard/honeypot', async (req, res) => {
+    const action = String(req.body?.action || 'setup');
+    let result;
+    if (action === 'setup') {
+      const cfg = guard.get(GUILD.id);
+      if (cfg.honeypot.channelId) result = { ok: true, channelId: cfg.honeypot.channelId, existing: true };
+      else result = await guard.createHoneypotChannel(guardGuild());
+    } else if (action === 'role') {
+      result = { ok: true, roleId: 'r-honey', existing: true };
+    } else if (action === 'disable') {
+      result = guard.honeypotDisable(GUILD.id);
+    } else if (action === 'test') {
+      result = { ok: true, event: guard.honeypotOffense(guardGuild(), guard.get(GUILD.id), 'u12', { name: 'troll_42 (test)', kind: 'kanal', channelId: 'c-honey' }) };
+    } else {
+      return res.status(400).json({ error: 'Bilinmeyen honeypot işlemi.' });
+    }
+    if (!result.ok) return res.status(400).json({ error: result.error || 'Honeypot işlemi başarısız.' });
+    pushLog('guard', `Honeypot işlemi: ${action}`);
+    const payload = guardPayload();
+    res.json({ ok: true, result, guard: payload.guard, summary: payload.summary, events: payload.events });
+  });
+
+  r.post('/api/guard/ad-sim', (req, res) => {
+    const text = String(req.body?.text || '').slice(0, 2000);
+    if (!text.trim()) return res.status(400).json({ error: 'Test için bir metin yaz.' });
+    res.json({ ok: true, analysis: guard.analyzeAd(text, guard.get(GUILD.id)) });
+  });
+
+  r.post('/api/guard/restore', async (req, res) => {
+    const cfg = guard.get(GUILD.id);
+    if (!cfg.backup) return res.status(400).json({ error: 'Yedek bulunamadı. Önce "Yedek al" düğmesini kullan.' });
+    // Demo: sahte sunucuda kanal oluşturulamaz; gerçekçi bir sonuç raporlanır.
+    const roles = Math.min(3, Math.max(1, cfg.backup.roles.length - 2));
+    const chans = Math.min(4, Math.max(1, cfg.backup.channels.length - 2));
+    guard.pushEvent(GUILD.id, {
+      type: 'action', severity: 'medium', title: 'Yedekten geri yükleme',
+      detail: `${roles} rol, ${chans} kanal yeniden oluşturuldu (demo).`, module: 'antiNuke'
+    });
+    guard.update(GUILD.id, { stats: { ...cfg.stats, restored: (cfg.stats.restored || 0) + roles + chans } });
+    pushLog('guard', `Yedekten geri yükleme: ${roles} rol, ${chans} kanal`);
+    const payload = guardPayload();
+    res.json({ ok: true, roles, channels: chans, failed: [], summary: payload.summary, events: payload.events });
+  });
+
+  r.post('/api/guard/panic', async (req, res) => {
+    seedGuardCenter();
+    const result = await guard.panic(guardGuild(), 'kaptan');
+    pushLog('guard', `Panik modu: ${result.roles || 0} rol alındı`);
+    const payload = guardPayload();
+    res.json({ ok: true, ...result, summary: payload.summary, events: payload.events });
+  });
+
+  r.post('/api/guard/audit', async (req, res) => {
+    await guard.safetyAudit(guardGuild());
+    const payload = guardPayload();
+    res.json({ ok: true, summary: payload.summary, events: payload.events });
   });
 
   r.post('/api/guard/module', (req, res) => {
@@ -628,6 +736,9 @@ function router() {
     return {
       id,
       name: meta ? meta.name : id,
+      ownerId: `${id}-owner`,
+      memberCount: meta ? meta.memberCount : 500,
+      bans: { create: async () => ({ ok: true }) },
       client: { user: { id: 'bot1' } },
       channels: {
         cache: new Map(data.channels.map((c) => [c.id, {
@@ -710,6 +821,13 @@ function router() {
     });
 
     // 4) Whitelist’te ama sahibi kapatmış
+    guard.update('913555340000000001', {
+      stats: {
+        blocked: 12, deleted: 28, timeouts: 5, bans: 3, kicks: 2, stripped: 1, restored: 0,
+        honeypot: 2, ads: 9, lastAt: now - 3 * day,
+        byDay: {}
+      }
+    });
     guard.update('913555340000000003', {
       enabled: false,
       logChannelId: 'g03-c2',
@@ -756,6 +874,7 @@ function router() {
       modules: guard.MODULES,
       limitActions: guard.LIMIT_ACTIONS,
       punishments: guard.PUNISHMENTS,
+      presets: guard.PRESETS,
       botReady: true
     };
   }
@@ -832,6 +951,10 @@ function router() {
       modules: guard.MODULES,
       limitActions: guard.LIMIT_ACTIONS,
       punishments: guard.PUNISHMENTS,
+      honeypotActions: guard.HONEYPOT_ACTIONS,
+      adActions: guard.AD_ACTIONS,
+      presets: guard.PRESETS,
+      statsSeries: guard.daySeries(guildId, 14),
       events: guard.events(guildId, 60),
       ops: guard.ops(200).filter((o) => o.guildId === guildId),
       textChannels: data.channels.filter((c) => ['text', 'announcement'].includes(c.type)).map((c) => ({ id: c.id, name: c.name })),
@@ -845,39 +968,13 @@ function router() {
     let guildId;
     try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
     const body = req.body || {};
-    const patch = {};
-    if (body.logChannelId !== undefined) patch.logChannelId = body.logChannelId || null;
-    if (body.jailRoleId !== undefined) patch.jailRoleId = body.jailRoleId || null;
-    if (body.punishment !== undefined) {
-      if (!guard.PUNISHMENTS.some((p) => p.key === body.punishment)) return demoGuardError(res, new Error('Geçersiz ceza kuralı.'));
-      patch.punishment = body.punishment;
-    }
-    if (body.windowSeconds !== undefined) {
-      const n = Math.floor(Number(body.windowSeconds));
-      if (!Number.isFinite(n) || n < 5 || n > 600) return demoGuardError(res, new Error('Pencere 5 ile 600 saniye arasında olmalı.'));
-      patch.windowSeconds = n;
-    }
-    if (body.modules && typeof body.modules === 'object') {
-      const modules = {};
-      guard.MODULES.forEach((m) => { if (body.modules[m.key] !== undefined) modules[m.key] = Boolean(body.modules[m.key]); });
-      if (Object.keys(modules).length) patch.modules = modules;
-    }
-    if (body.limits && typeof body.limits === 'object') {
-      const limits = {};
-      for (const a of guard.LIMIT_ACTIONS) {
-        if (body.limits[a.key] === undefined) continue;
-        const n = Math.floor(Number(body.limits[a.key]));
-        if (!Number.isFinite(n) || n < 1 || n > 100) return demoGuardError(res, new Error(`${a.label} limiti 1 ile 100 arasında olmalı.`));
-        limits[a.key] = n;
-      }
-      if (Object.keys(limits).length) patch.limits = limits;
-    }
+    const result = guard.setConfig(guildId, body);
+    if (!result.ok) return demoGuardError(res, new Error(result.error));
     if (Array.isArray(body.whitelist)) {
-      patch.whitelist = body.whitelist.map((x) => String(x).replace(/[<@!>]/g, '')).filter((x) => /^[\w-]{3,32}$/.test(x));
+      guard.update(guildId, { whitelist: body.whitelist.map((x) => String(x).replace(/[<@!>]/g, '')).filter((x) => /^[\w-]{3,32}$/.test(x)) });
     }
     if (body.enabled !== undefined && Boolean(body.enabled) !== guard.get(guildId).enabled) guard.setEnabled(guildId, Boolean(body.enabled), 'kaptan');
-    if (Object.keys(patch).length) guard.update(guildId, patch);
-    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'config', detail: `Ayarlar güncellendi: ${Object.keys(patch).join(', ') || 'enabled'}`, actor: 'kaptan' });
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'config', detail: `Ayarlar güncellendi: ${Object.keys(body).join(', ') || 'genel'}`, actor: 'kaptan' });
     pushLog('guard', `${demoGuildMeta(guildId)?.name || guildId} guard ayarları merkezden güncellendi`);
     const cfg = guard.get(guildId);
     res.json({
@@ -886,6 +983,79 @@ function router() {
       admin: guard.adminSummary(guildId, demoGuardGuild(guildId)),
       guard: { ...cfg, whitelist: demoWhitelistView(guildId, cfg) }
     });
+  });
+
+  r.post('/api/guard/center/preset', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const result = guard.applyPreset(guildId, req.body?.preset || 'dengeli');
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'preset', detail: `Hazır ayar: ${result.preset}`, actor: 'kaptan' });
+    const cfg = guard.get(guildId);
+    res.json({
+      ok: true,
+      guild: demoCenterRows().find((x) => x.id === guildId) || null,
+      admin: guard.adminSummary(guildId, demoGuardGuild(guildId)),
+      guard: { ...cfg, whitelist: demoWhitelistView(guildId, cfg) },
+      statsSeries: guard.daySeries(guildId, 14)
+    });
+  });
+
+  r.post('/api/guard/center/honeypot', async (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const action = String(req.body?.action || 'setup');
+    let result;
+    if (action === 'setup') {
+      const cfg = guard.get(guildId);
+      if (cfg.honeypot.channelId) result = { ok: true, channelId: cfg.honeypot.channelId, existing: true };
+      else result = await guard.createHoneypotChannel(demoGuardGuild(guildId));
+    } else if (action === 'role') {
+      result = { ok: true, roleId: 'r-honey', existing: true };
+    } else if (action === 'disable') {
+      result = guard.honeypotDisable(guildId);
+    } else {
+      return demoGuardError(res, new Error('Bilinmeyen honeypot işlemi.'));
+    }
+    if (!result.ok) return demoGuardError(res, new Error(result.error || 'Honeypot işlemi başarısız.'));
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'honeypot', detail: `Honeypot: ${action}`, actor: 'kaptan' });
+    const cfg = guard.get(guildId);
+    res.json({
+      ok: true,
+      result,
+      guild: demoCenterRows().find((x) => x.id === guildId) || null,
+      admin: guard.adminSummary(guildId, demoGuardGuild(guildId)),
+      guard: { ...cfg, whitelist: demoWhitelistView(guildId, cfg) },
+      events: guard.events(guildId, 60)
+    });
+  });
+
+  r.post('/api/guard/center/ad-sim', (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const text = String(req.body?.text || '').slice(0, 2000);
+    if (!text.trim()) return demoGuardError(res, new Error('Test için bir metin yaz.'));
+    res.json({ ok: true, analysis: guard.analyzeAd(text, guard.get(guildId)) });
+  });
+
+  r.post('/api/guard/center/restore', async (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const result = await guard.restoreBackup(demoGuardGuild(guildId), { limiter: 20 });
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'restore', detail: `Geri yükleme: ${result.roles || 0} rol, ${result.channels || 0} kanal`, actor: 'kaptan' });
+    res.json({ ok: true, ...result, guild: demoCenterRows().find((x) => x.id === guildId) || null, events: guard.events(guildId, 60) });
+  });
+
+  r.post('/api/guard/center/panic', async (req, res) => {
+    seedGuardCenter();
+    let guildId;
+    try { guildId = demoGuildId(req.body?.guildId); } catch (err) { return demoGuardError(res, err); }
+    const result = await guard.panic(demoGuardGuild(guildId), 'kaptan');
+    guard.pushOps({ guildId, guildName: demoGuildMeta(guildId)?.name || null, action: 'panic', detail: `PANİK: ${result.roles || 0} rol`, actor: 'kaptan' });
+    res.json({ ok: true, ...result, guild: demoCenterRows().find((x) => x.id === guildId) || null, events: guard.events(guildId, 60) });
   });
 
   r.post('/api/guard/center/note', (req, res) => {

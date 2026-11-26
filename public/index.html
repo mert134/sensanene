@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/style.css" />
   <link rel="stylesheet" href="/panel-polish.css" />
   <link rel="stylesheet" href="/channel-controls.css" />
+  <link rel="stylesheet" href="/guard.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b7cfa' stroke-width='1.8' stroke-linecap='round'%3E%3Cline x1='4' y1='21' x2='4' y2='14'/%3E%3Cline x1='4' y1='10' x2='4' y2='3'/%3E%3Cline x1='12' y1='21' x2='12' y2='12'/%3E%3Cline x1='12' y1='8' x2='12' y2='3'/%3E%3Cline x1='20' y1='21' x2='20' y2='16'/%3E%3Cline x1='20' y1='12' x2='20' y2='3'/%3E%3Cline x1='1' y1='14' x2='7' y2='14'/%3E%3Cline x1='9' y1='8' x2='15' y2='8'/%3E%3Cline x1='17' y1='16' x2='23' y2='16'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -218,67 +219,226 @@
 
       <!-- ---------- GUARD ---------- -->
       <section class="section" id="sec-guard">
-        <div class="toolbar">
-          <button class="btn btn-primary" id="guardToggleBtn" onclick="toggleGuard()">Korumayı aç</button>
-          <button class="btn" onclick="takeGuardBackup()" data-icon-label="save:Yedek al"></button>
-          <button class="btn" onclick="loadGuard()" data-icon-label="refresh:Yenile"></button>
-          <span class="badge" id="guardBadge">yükleniyor</span>
+        <div class="guard-hero" id="guardHero">
+          <div class="guard-hero-glow"></div>
+          <div class="guard-hero-main">
+            <div class="guard-emblem" id="guardEmblem" data-icon="shield"></div>
+            <div class="guard-hero-text">
+              <div class="guard-hero-title">
+                <h2>LORES Guard</h2>
+                <span class="guard-live" id="guardLive"><i></i> CANLI</span>
+              </div>
+              <p id="guardHeroSub">Gerçek zamanlı sunucu koruması yükleniyor…</p>
+              <div class="guard-hero-chips" id="guardHeroChips"></div>
+            </div>
+            <div class="guard-hero-actions">
+              <button class="guard-power" id="guardToggleBtn" onclick="toggleGuard()" title="Korumayı aç/kapat">
+                <span class="gp-track"><span class="gp-knob" data-icon="shield"></span></span>
+                <span class="gp-label" id="guardPowerLabel">Korumayı aç</span>
+              </button>
+              <button class="btn btn-sm" onclick="takeGuardBackup()" data-icon-label="save:Yedek al"></button>
+              <button class="btn btn-sm" onclick="loadGuard()" data-icon-label="refresh:Yenile"></button>
+            </div>
+          </div>
+          <div class="guard-kpis" id="guardKpis"></div>
         </div>
 
-        <div class="grid cols-2">
-          <div class="card">
-            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-9.6V5.2L12 2.2 4 5.2v7.2C4 18.4 12 22 12 22z"/></svg> Koruma durumu</h3>
-            <div class="hint" id="guardSummary"></div>
-            <div class="field">
-              <label class="f" for="guardLogChannel">Guard kanalı</label>
-              <select class="input" id="guardLogChannel"><option value="">— seçilmedi —</option></select>
-              <div class="hint">İhlal ve şüpheli hareket kayıtları bu kanala yazılır.</div>
+        <div class="guard-presets" id="guardPresets"></div>
+
+        <div class="grid cols-2 guard-grid">
+          <div class="card guard-card-accent">
+            <h3><span class="h3-ico" data-icon="sliders"></span> Koruma merkezi</h3>
+            <div class="guard-split">
+              <div class="field">
+                <label class="f" for="guardPunishment">Ana ceza</label>
+                <select class="input" id="guardPunishment"></select>
+                <div class="hint">Eşik aşılınca <b>gerçekten uygulanır</b>.</div>
+              </div>
+              <div class="field">
+                <label class="f" for="guardTimeout">Timeout süresi (dk)</label>
+                <input class="input" id="guardTimeout" type="number" min="1" max="1440" step="1" />
+              </div>
             </div>
-            <div class="field">
-              <label class="f" for="guardPunishment">Ceza kuralı</label>
-              <select class="input" id="guardPunishment"></select>
+            <div class="guard-split">
+              <div class="field">
+                <label class="f" for="guardWindow">Sayım penceresi (sn)</label>
+                <input class="input" id="guardWindow" type="number" min="5" max="600" step="5" />
+              </div>
+              <div class="field">
+                <label class="f" for="guardLogChannel">Guard kanalı</label>
+                <select class="input" id="guardLogChannel"><option value="">— seçilmedi —</option></select>
+              </div>
             </div>
-            <div class="field">
-              <label class="f" for="guardWindow">Sayım penceresi (saniye)</label>
-              <input class="input" id="guardWindow" type="number" min="5" max="600" step="5" />
-              <div class="hint">Limitler bu süre içinde sayılır (5–600 sn).</div>
+            <div class="guard-split">
+              <div class="field">
+                <label class="f" for="guardJailRole">Koruma (jail) rolü</label>
+                <select class="input" id="guardJailRole"><option value="">— kapalı —</option></select>
+              </div>
+              <div class="field">
+                <label class="f" for="guardMutedRole">Susturma rolü</label>
+                <select class="input" id="guardMutedRole"><option value="">— otomatik —</option></select>
+              </div>
             </div>
-            <div class="field">
-              <label class="f" for="guardJailRole">Koruma rolü</label>
-              <select class="input" id="guardJailRole"><option value="">— kapalı —</option></select>
-            </div>
-            <button class="btn btn-primary btn-block" onclick="saveGuardConfig()" data-icon-label="save:Kaydet"></button>
-            <div class="hint" id="guardNote"></div>
-            <div class="hint" style="margin-top:8px">Botun ve panelin kendi toplu işlemleri (kanal/rol silme-oluşturma, Anonymous webhook ekleme, toplu ban/kick, anonim gönderim) tehlike sayılmaz — guard kendi yaptığı işi ihlal olarak kaydetmez. Kendi Discord hesabınla toplu işlem yapacaksan hesabını <b>Güvenli liste</b>'ye ekle.</div>
+            <button class="btn btn-primary btn-block" onclick="saveGuardConfig()" data-icon-label="save:Ayarları kaydet"></button>
+            <div class="hint" id="guardNote" style="margin-top:10px"></div>
           </div>
 
           <div class="card">
-            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg> Modüller <span class="badge" id="guardModuleCount">0/0</span></h3>
-            <div id="guardModules"></div>
-            <h3 style="margin-top:22px"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="3.5"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.6a4 4 0 0 1 0 7.75"/></svg> Güvenli liste <span class="badge" id="guardWhitelistCount">0</span></h3>
+            <h3><span class="h3-ico" data-icon="grid"></span> Modüller <span class="badge" id="guardModuleCount">0/0</span></h3>
+            <div class="guard-modules" id="guardModules"></div>
+            <div class="guard-quick">
+              <button class="btn btn-sm btn-ok" onclick="toggleAllGuardModules(true)">Tümünü aç</button>
+              <button class="btn btn-sm" onclick="toggleAllGuardModules(false)">Tümünü kapat</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid cols-2 guard-grid">
+          <div class="card honey-card">
+            <h3><span class="h3-ico">🍯</span> Honeypot tuzağı <span class="badge" id="guardHoneypotBadge">kapalı</span></h3>
+            <p class="guard-desc">Kimsenin kullanmaması gereken bir kanal veya rol kurulur. Oraya yazan, mention’layan ya da mesajı kuran kişi <b>anında cezalandırılır</b>. Kanaldaki mesaj "tuzak" olarak etiketlenir; sunucuya tuzağın nerede olduğu söylenmez.</p>
+            <div class="guard-split">
+              <div class="field">
+                <label class="f" for="guardHoneypotAction">Tuzak cezası</label>
+                <select class="input" id="guardHoneypotAction"></select>
+              </div>
+              <div class="field">
+                <label class="f" for="guardHoneypotHours">Süre (saat)</label>
+                <input class="input" id="guardHoneypotHours" type="number" min="1" max="24" step="1" />
+              </div>
+            </div>
+            <div class="honey-grid" id="guardHoneypotInfo"></div>
+            <div class="honey-actions">
+              <button class="btn btn-danger" onclick="honeypotAction('setup')">🍯 Tuzak kanalı kur/onar</button>
+              <button class="btn btn-warn" onclick="honeypotAction('role')">Tuzak rol kur</button>
+              <button class="btn" onclick="honeypotAction('test')">Test tetikle</button>
+              <button class="btn" onclick="honeypotAction('disable')">Kapat</button>
+            </div>
+          </div>
+
+          <div class="card ad-card">
+            <h3><span class="h3-ico" data-icon="megaphone"></span> Reklam motoru <span class="badge" id="guardAdBadge">0 tespit</span></h3>
+            <p class="guard-desc">Davet linkleri, link kısaltıcılar, nitro/steam scam, kripto-bahis-satış sinyalleri, gizlenmiş alan adları (<code>d1scord[.]gg</code>) ve emoji/büyük harf bombardımanı puanlanır. <b>3+ skor</b> reklam sayılır.</p>
+            <div class="guard-split">
+              <div class="field">
+                <label class="f" for="guardAdAction">Reklam cezası</label>
+                <select class="input" id="guardAdAction"></select>
+              </div>
+              <div class="field">
+                <label class="f" for="guardAdInvites">Davet linkleri</label>
+                <select class="input" id="guardAdInvites">
+                  <option value="block">Yasak (reklam say)</option>
+                  <option value="allow">Serbest bırak</option>
+                </select>
+              </div>
+            </div>
+            <div class="guard-split">
+              <div class="field" style="flex:2">
+                <label class="f" for="guardAdDomains">Güvenilir alan adları (virgülle)</label>
+                <input class="input" id="guardAdDomains" placeholder="youtube.com, twitch.tv" />
+              </div>
+            </div>
+            <div class="ad-sim">
+              <label class="f">Reklam simülatörü — canlı test</label>
+              <div class="ad-sim-row">
+                <input class="input" id="guardAdSimInput" placeholder="Bir mesaj yaz: discord.gg/xxx, bedava nitro..." onkeydown="if(event.key==='Enter')runAdSim()" />
+                <button class="btn btn-primary" onclick="runAdSim()">Tara</button>
+              </div>
+              <div class="ad-sim-result" id="guardAdSimResult"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid cols-2 guard-grid">
+          <div class="card">
+            <h3><span class="h3-ico" data-icon="alert"></span> Eşikler & otomatik davranış</h3>
+            <div class="guard-settings-list">
+              <div class="field">
+                <label class="f" for="guardMassDestructive">Toplu yıkım eşiği (tek kişi, pencere içinde)</label>
+                <input class="input" id="guardMassDestructive" type="number" min="2" max="50" />
+              </div>
+              <div class="guard-split">
+                <div class="field">
+                  <label class="f" for="guardMaxMentions">Mesaj başına mention</label>
+                  <input class="input" id="guardMaxMentions" type="number" min="1" max="50" />
+                </div>
+                <div class="field">
+                  <label class="f" for="guardMassMention">Toplu mention eşiği</label>
+                  <input class="input" id="guardMassMention" type="number" min="2" max="100" />
+                </div>
+              </div>
+              <div class="guard-split">
+                <div class="field">
+                  <label class="f" for="guardRaidAction">Raid müdahalesi</label>
+                  <select class="input" id="guardRaidAction"></select>
+                </div>
+                <div class="field">
+                  <label class="f" for="guardBotAction">Bot eklenirse</label>
+                  <select class="input" id="guardBotAction"></select>
+                </div>
+              </div>
+              <div class="guard-split">
+                <div class="field">
+                  <label class="f" for="guardNewAccountAction">Yeni hesap (7 günden az)</label>
+                  <select class="input" id="guardNewAccountAction"></select>
+                </div>
+                <div class="field">
+                  <label class="f" for="guardNewAccountDays">Yeni hesap sınırı (gün)</label>
+                  <input class="input" id="guardNewAccountDays" type="number" min="1" max="90" />
+                </div>
+              </div>
+              <div class="toggle-grid">
+                <label class="toggle"><input type="checkbox" id="guardCapsEnabled" /><span>Büyük harf filtresi</span></label>
+                <label class="toggle"><input type="checkbox" id="guardEmojiEnabled" /><span>Emoji filtresi</span></label>
+                <label class="toggle"><input type="checkbox" id="guardVerifyLevel" /><span>Doğrulama yükselt</span></label>
+                <label class="toggle"><input type="checkbox" id="guardAutoRestore" /><span>Nuke sonrası onarım</span></label>
+                <label class="toggle"><input type="checkbox" id="guardWatchIntegrations" /><span>Entegrasyon izle</span></label>
+                <label class="toggle"><input type="checkbox" id="guardAutoReply" /><span>Honeypot uyarısı</span></label>
+              </div>
+              <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="saveGuardAdvanced()" data-icon-label="save:Gelişmiş ayarları kaydet"></button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><span class="h3-ico" data-icon="users"></span> Güvenli liste <span class="badge" id="guardWhitelistCount">0</span></h3>
             <div class="toolbar" style="padding:0;margin-bottom:10px">
               <input class="input" id="guardWhitelistInput" placeholder="Kullanıcı ID" style="max-width:220px" />
               <button class="btn btn-sm btn-primary" onclick="addGuardWhitelist()">Ekle</button>
             </div>
-            <div class="hint" style="margin-bottom:8px">Güvenli listedeki kullanıcılar limitlere takılmaz.</div>
+            <div class="hint" style="margin-bottom:8px">Güvenli listedeki kullanıcılar limitlere, reklam/spam tespitine ve honeypot’a takılmaz. Botun kendisi ve panel işlemleri zaten hariçtir.</div>
             <div id="guardWhitelist"></div>
+            <h3 style="margin-top:22px"><span class="h3-ico" data-icon="activity"></span> Müdahale trendi <span class="badge" id="guardTrendBadge">14 gün</span></h3>
+            <div class="guard-trend" id="guardTrend"></div>
+            <div class="guard-trend-legend"><span><i class="dot-red"></i>Müdahale</span><span><i class="dot-amber"></i>Mesaj silme</span><span><i class="dot-green"></i>Honeypot</span></div>
           </div>
         </div>
 
         <div class="card" style="margin-top:14px">
-          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg> Limitler <span class="badge" id="guardWindowBadge">60 sn</span></h3>
-          <div class="grid cols-3" id="guardLimits"></div>
+          <h3><span class="h3-ico" data-icon="sliders"></span> Limitler & oranlar <span class="badge" id="guardWindowBadge">60 sn</span></h3>
+          <p class="guard-desc">Sabit limit: pencere içinde en fazla kaç işlem. Oran: sunucu büyüdükçe otomatik eşik (örn. 3 → her 3 üyede 1 işlem). İkisinden biri aşılırsa müdahale edilir.</p>
+          <div class="guard-limits" id="guardLimits"></div>
           <button class="btn btn-primary" style="margin-top:12px" onclick="saveGuardLimits()" data-icon-label="save:Limitleri kaydet"></button>
         </div>
 
         <div class="card" style="margin-top:14px">
-          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Guard olayları <span class="badge" id="guardEventCount">0</span></h3>
-          <div class="toolbar" style="padding:0;margin-bottom:6px">
+          <h3><span class="h3-ico" data-icon="alert"></span> Guard olayları <span class="badge" id="guardEventCount">0</span></h3>
+          <div class="toolbar" style="padding:0;margin-bottom:10px">
+            <input class="input" id="guardEventSearch" placeholder="Olaylarda ara…" style="max-width:240px" oninput="renderGuardEvents(guardData ? guardData.events : [])" />
             <button class="btn btn-sm" onclick="loadGuardEvents()" data-icon-label="refresh:Yenile"></button>
             <button class="btn btn-sm" onclick="runGuardTest()" data-icon-label="activity:Test olayı üret"></button>
+            <button class="btn btn-sm btn-warn" onclick="runSafetyAudit()" data-icon-label="shield:Güvenlik denetimi"></button>
             <button class="btn btn-sm btn-danger" onclick="clearGuardEvents()">Akışı temizle</button>
           </div>
-          <div id="guardEvents"><div class="empty">Yükleniyor…</div></div>
+          <div class="guard-events" id="guardEvents"><div class="empty">Yükleniyor…</div></div>
+        </div>
+
+        <div class="card danger-zone" style="margin-top:14px">
+          <h3><span class="h3-ico" data-icon="octagon"></span> Acil durum</h3>
+          <p class="guard-desc">Sunucu şu anda saldırı altındaysa panik modu tüm yetkili rollerini anında soyar ve davetleri siler. Geri alınamaz — roller elle geri verilir.</p>
+          <div class="row" style="max-width:560px">
+            <button class="btn btn-warn" onclick="restoreGuardBackup()" data-icon-label="refresh:Yedekten geri yükle"></button>
+            <button class="btn btn-danger" onclick="panicGuard()" data-icon-label="octagon:PANİK MODU"></button>
+          </div>
         </div>
       </section>
 
